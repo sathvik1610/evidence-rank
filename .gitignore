@@ -57,3 +57,7 @@ scratch/
 tmp/
 *.tmp
 *.log
+
+# Resources
+Resources/
+
