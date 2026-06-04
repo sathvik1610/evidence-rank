@@ -1,0 +1,1252 @@
+[
+  {
+    "candidate_id": "CAND_0000014",
+    "tier": 3,
+    "note": "Tier 3: YoE: 8.4, Retr: ['faiss', 'opensearch'], Rank: [], Prod: ['production'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000015",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.4, Retr: ['qdrant'], Rank: [], Prod: ['production', 'deploy'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000088",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.6, Retr: ['vector search'], Rank: [], Prod: ['production', 'deploy'], 1/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000182",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.5, Retr: ['elasticsearch'], Rank: [], Prod: ['production'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000187",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.6, Retr: ['embeddings'], Rank: [], Prod: ['production', 'deploy'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000225",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.0, Retr: ['faiss'], Rank: [], Prod: ['serving'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000227",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.6, Retr: ['qdrant', 'elasticsearch'], Rank: ['learning to rank', 'xgboost'], Prod: ['real-time'], 1/4 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000273",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.8, Retr: ['qdrant'], Rank: ['learning to rank'], Prod: ['production', 'deploy'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000275",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.8, Retr: [], Rank: ['bm25'], Prod: ['deploy'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000280",
+    "tier": 3,
+    "note": "Tier 3: YoE: 8.2, Retr: ['weaviate'], Rank: [], Prod: ['production'], 1/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000298",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.3, Retr: [], Rank: ['learning to rank'], Prod: ['deploy'], 1/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000352",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.7, Retr: ['opensearch'], Rank: [], Prod: ['production', 'deploy'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000354",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.3, Retr: [], Rank: ['xgboost', 'bm25'], Prod: ['real-time', 'serving'], 1/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000404",
+    "tier": 3,
+    "note": "Tier 3: YoE: 8.2, Retr: ['pinecone'], Rank: [], Prod: ['deploy'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000422",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.3, Retr: ['milvus', 'opensearch'], Rank: ['learning to rank', 'xgboost'], Prod: ['production', 'deploy'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000440",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.5, Retr: ['vector search'], Rank: ['xgboost'], Prod: ['real-time', 'serving'], 1/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000508",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.6, Retr: ['opensearch'], Rank: ['xgboost'], Prod: ['real-time'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000584",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.3, Retr: [], Rank: ['bm25'], Prod: ['real-time'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000596",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.8, Retr: [], Rank: ['bm25'], Prod: ['production', 'deploy'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000623",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.1, Retr: ['vector search'], Rank: ['bm25'], Prod: ['production', 'deploy'], 1/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000665",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.2, Retr: ['embeddings'], Rank: [], Prod: ['real-time'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000666",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.5, Retr: ['weaviate'], Rank: ['xgboost'], Prod: ['production', 'deploy'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000719",
+    "tier": 3,
+    "note": "Tier 3: YoE: 8.8, Retr: ['faiss'], Rank: [], Prod: ['deploy'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000745",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.4, Retr: ['pinecone'], Rank: [], Prod: ['deploy'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000760",
+    "tier": 3,
+    "note": "Tier 3: YoE: 9.9, Retr: ['milvus'], Rank: [], Prod: ['production', 'deploy'], 3/6 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000859",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.9, Retr: ['pinecone'], Rank: [], Prod: ['serving'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000895",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.1, Retr: ['qdrant'], Rank: [], Prod: ['production'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000938",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.6, Retr: ['pinecone'], Rank: [], Prod: ['production'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001006",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.7, Retr: [], Rank: ['xgboost'], Prod: ['serving'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001035",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.9, Retr: [], Rank: ['bm25'], Prod: ['deploy'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001056",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.1, Retr: ['pinecone', 'opensearch', 'embeddings'], Rank: [], Prod: ['production', 'deploy', 'serving'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001060",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.6, Retr: ['elasticsearch'], Rank: ['xgboost'], Prod: ['real-time'], 1/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001065",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.8, Retr: ['opensearch'], Rank: ['learning to rank'], Prod: ['deploy'], 1/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001085",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.5, Retr: ['weaviate', 'elasticsearch'], Rank: ['learning to rank'], Prod: ['real-time'], 2/4 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001088",
+    "tier": 3,
+    "note": "Tier 3: YoE: 8.1, Retr: ['faiss', 'vector search', 'embeddings'], Rank: [], Prod: ['production', 'scale'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001126",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.9, Retr: ['qdrant', 'opensearch'], Rank: ['xgboost'], Prod: ['production'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001131",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.8, Retr: ['vector search'], Rank: ['xgboost'], Prod: ['production'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001151",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.0, Retr: ['milvus'], Rank: ['bm25'], Prod: ['production', 'deploy', 'serving'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001218",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.4, Retr: ['opensearch'], Rank: [], Prod: ['production', 'deploy'], 1/4 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001302",
+    "tier": 3,
+    "note": "Tier 3: YoE: 5.8, Retr: ['opensearch'], Rank: ['learning to rank', 'xgboost'], Prod: ['production', 'deploy', 'serving'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001325",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.6, Retr: [], Rank: ['learning to rank'], Prod: ['production'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001337",
+    "tier": 3,
+    "note": "Tier 3: YoE: 4.6, Retr: ['embeddings'], Rank: ['learning to rank'], Prod: ['serving'], 1/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001434",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.4, Retr: ['opensearch'], Rank: [], Prod: ['production', 'deploy'], 1/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001494",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.4, Retr: ['weaviate', 'vector search'], Rank: [], Prod: ['production', 'deploy'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001498",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.4, Retr: ['milvus'], Rank: [], Prod: ['deploy'], 1/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001537",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.3, Retr: ['faiss', 'pinecone', 'vector search', 'embeddings'], Rank: [], Prod: ['production', 'scale'], 0/2 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001609",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.9, Retr: ['weaviate'], Rank: [], Prod: ['deploy'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001637",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.6, Retr: ['elasticsearch'], Rank: [], Prod: ['deploy'], 2/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001638",
+    "tier": 3,
+    "note": "Tier 3: YoE: 7.9, Retr: ['vector search'], Rank: [], Prod: ['real-time', 'serving'], 3/5 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0001651",
+    "tier": 3,
+    "note": "Tier 3: YoE: 6.5, Retr: ['weaviate'], Rank: [], Prod: ['production', 'deploy', 'serving'], 0/3 consulting roles"
+  },
+  {
+    "candidate_id": "CAND_0000006",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.0, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000010",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.6, Tech candidate but no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000018",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.6, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000021",
+    "tier": 2,
+    "note": "Tier 2: YoE: 14.5, Tech candidate but out of YOE range (14.5)"
+  },
+  {
+    "candidate_id": "CAND_0000023",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.7, Tech candidate but no retrieval/ranking terms, out of YOE range (3.7)"
+  },
+  {
+    "candidate_id": "CAND_0000025",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.3, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000029",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.2, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000032",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.1, Tier 3 profile but poor signals (Notice: 150d, Response: 0.69)"
+  },
+  {
+    "candidate_id": "CAND_0000034",
+    "tier": 2,
+    "note": "Tier 2: YoE: 14.5, Tech candidate but no retrieval/ranking terms, out of YOE range (14.5)"
+  },
+  {
+    "candidate_id": "CAND_0000037",
+    "tier": 2,
+    "note": "Tier 2: YoE: 14.3, Tech candidate but no retrieval/ranking terms, out of YOE range (14.3)"
+  },
+  {
+    "candidate_id": "CAND_0000038",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.7, Tech candidate but no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000043",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.3, Tier 3 profile but poor signals (Notice: 120d, Response: 0.04)"
+  },
+  {
+    "candidate_id": "CAND_0000044",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.7, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000048",
+    "tier": 2,
+    "note": "Tier 2: YoE: 9.7, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000050",
+    "tier": 2,
+    "note": "Tier 2: YoE: 13.5, Tech candidate but no retrieval/ranking terms, out of YOE range (13.5)"
+  },
+  {
+    "candidate_id": "CAND_0000051",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.2, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000054",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.9, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000055",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.3, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000060",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.0, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000061",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.7, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000062",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.3, Tech candidate but no retrieval/ranking terms, no production evidence, consulting only, out of YOE range (4.3)"
+  },
+  {
+    "candidate_id": "CAND_0000063",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.4, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000069",
+    "tier": 2,
+    "note": "Tier 2: YoE: 13.0, Tech candidate but no retrieval/ranking terms, out of YOE range (13.0)"
+  },
+  {
+    "candidate_id": "CAND_0000070",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.2, Tech candidate but no retrieval/ranking terms, no production evidence, out of YOE range (4.2)"
+  },
+  {
+    "candidate_id": "CAND_0000072",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.0, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000075",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.2, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000077",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.7, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000078",
+    "tier": 2,
+    "note": "Tier 2: YoE: 10.3, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000082",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.4, Tier 3 profile but poor signals (Notice: 120d, Response: 0.82)"
+  },
+  {
+    "candidate_id": "CAND_0000087",
+    "tier": 2,
+    "note": "Tier 2: YoE: 2.5, Tech candidate but no retrieval/ranking terms, no production evidence, consulting only, out of YOE range (2.5)"
+  },
+  {
+    "candidate_id": "CAND_0000091",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.6, Tech candidate but out of YOE range (3.6)"
+  },
+  {
+    "candidate_id": "CAND_0000092",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.8, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000096",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.2, Tech candidate but no retrieval/ranking terms, out of YOE range (3.2)"
+  },
+  {
+    "candidate_id": "CAND_0000099",
+    "tier": 2,
+    "note": "Tier 2: YoE: 2.6, Tech candidate but no retrieval/ranking terms, out of YOE range (2.6)"
+  },
+  {
+    "candidate_id": "CAND_0000104",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.1, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000108",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.6, Tech candidate but no retrieval/ranking terms, no production evidence, out of YOE range (3.6)"
+  },
+  {
+    "candidate_id": "CAND_0000110",
+    "tier": 2,
+    "note": "Tier 2: YoE: 9.8, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000116",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.3, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000117",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.9, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000127",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.7, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000128",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.5, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000130",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.6, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000131",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.8, Tech candidate but no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000136",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.5, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000138",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.3, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000142",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.1, Tech candidate but consulting only"
+  },
+  {
+    "candidate_id": "CAND_0000145",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.4, Tech candidate but no retrieval/ranking terms, out of YOE range (3.4)"
+  },
+  {
+    "candidate_id": "CAND_0000152",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.0, Tech candidate but no retrieval/ranking terms, out of YOE range (4.0)"
+  },
+  {
+    "candidate_id": "CAND_0000155",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.2, Tech candidate but no production evidence, out of YOE range (3.2)"
+  },
+  {
+    "candidate_id": "CAND_0000158",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.4, Tech candidate but out of YOE range (4.4)"
+  },
+  {
+    "candidate_id": "CAND_0000159",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.4, Tech candidate but out of YOE range (4.4)"
+  },
+  {
+    "candidate_id": "CAND_0000160",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.0, Tier 3 profile but poor signals (Notice: 120d, Response: 0.29)"
+  },
+  {
+    "candidate_id": "CAND_0000162",
+    "tier": 2,
+    "note": "Tier 2: YoE: 13.8, Tech candidate but no retrieval/ranking terms, out of YOE range (13.8)"
+  },
+  {
+    "candidate_id": "CAND_0000165",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.8, Tier 3 profile but poor signals (Notice: 120d, Response: 0.3)"
+  },
+  {
+    "candidate_id": "CAND_0000167",
+    "tier": 2,
+    "note": "Tier 2: YoE: 9.1, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000179",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.2, Tech candidate but no retrieval/ranking terms, no production evidence, consulting only, out of YOE range (3.2)"
+  },
+  {
+    "candidate_id": "CAND_0000184",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.9, Tech candidate but no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000191",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.0, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000192",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.1, Tech candidate but no retrieval/ranking terms, no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000195",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.9, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000198",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.3, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000200",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.3, Tech candidate but out of YOE range (4.3)"
+  },
+  {
+    "candidate_id": "CAND_0000210",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.3, Tech candidate but no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000223",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.1, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000228",
+    "tier": 2,
+    "note": "Tier 2: YoE: 4.0, Tech candidate but no retrieval/ranking terms, out of YOE range (4.0)"
+  },
+  {
+    "candidate_id": "CAND_0000235",
+    "tier": 2,
+    "note": "Tier 2: YoE: 10.4, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000249",
+    "tier": 2,
+    "note": "Tier 2: YoE: 9.1, Tech candidate but no production evidence"
+  },
+  {
+    "candidate_id": "CAND_0000250",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.7, Tech candidate but no retrieval/ranking terms, no production evidence, consulting only, out of YOE range (3.7)"
+  },
+  {
+    "candidate_id": "CAND_0000254",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.7, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000255",
+    "tier": 2,
+    "note": "Tier 2: YoE: 8.0, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000260",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.8, Tech candidate but no retrieval/ranking terms, out of YOE range (3.8)"
+  },
+  {
+    "candidate_id": "CAND_0000263",
+    "tier": 2,
+    "note": "Tier 2: YoE: 5.4, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000274",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.0, Tech candidate but no production evidence, consulting only, out of YOE range (3.0)"
+  },
+  {
+    "candidate_id": "CAND_0000279",
+    "tier": 2,
+    "note": "Tier 2: YoE: 2.9, Tech candidate but no retrieval/ranking terms, out of YOE range (2.9)"
+  },
+  {
+    "candidate_id": "CAND_0000285",
+    "tier": 2,
+    "note": "Tier 2: YoE: 3.5, Tech candidate but no retrieval/ranking terms, out of YOE range (3.5)"
+  },
+  {
+    "candidate_id": "CAND_0000288",
+    "tier": 2,
+    "note": "Tier 2: YoE: 2.7, Tech candidate but no retrieval/ranking terms, no production evidence, out of YOE range (2.7)"
+  },
+  {
+    "candidate_id": "CAND_0000295",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.8, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000302",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.4, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000307",
+    "tier": 2,
+    "note": "Tier 2: YoE: 6.8, Tech candidate but no retrieval/ranking terms"
+  },
+  {
+    "candidate_id": "CAND_0000313",
+    "tier": 2,
+    "note": "Tier 2: YoE: 7.0, Tier 3 profile but poor signals (Notice: 120d, Response: 0.18)"
+  },
+  {
+    "candidate_id": "CAND_0000002",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Operations Manager"
+  },
+  {
+    "candidate_id": "CAND_0000004",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Marketing Manager"
+  },
+  {
+    "candidate_id": "CAND_0000005",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Accountant"
+  },
+  {
+    "candidate_id": "CAND_0000007",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000008",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Operations Manager"
+  },
+  {
+    "candidate_id": "CAND_0000009",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000016",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Accountant"
+  },
+  {
+    "candidate_id": "CAND_0000017",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Accountant"
+  },
+  {
+    "candidate_id": "CAND_0000019",
+    "tier": 1,
+    "note": "Tier 1: Non-tech title/headline: Project Manager / Project Manager | 6.5+ yrs experience"
+  },
+  {
+    "candidate_id": "CAND_0000020",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000024",
+    "tier": 1,
+    "note": "Tier 1: Noise title: HR Manager"
+  },
+  {
+    "candidate_id": "CAND_0000026",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000030",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Marketing Manager"
+  },
+  {
+    "candidate_id": "CAND_0000033",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000036",
+    "tier": 1,
+    "note": "Tier 1: Non-tech title/headline: Project Manager / Project Manager | 11.3+ yrs experience"
+  },
+  {
+    "candidate_id": "CAND_0000039",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Marketing Manager"
+  },
+  {
+    "candidate_id": "CAND_0000041",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Operations Manager"
+  },
+  {
+    "candidate_id": "CAND_0000042",
+    "tier": 1,
+    "note": "Tier 1: Noise title: HR Manager"
+  },
+  {
+    "candidate_id": "CAND_0000045",
+    "tier": 1,
+    "note": "Tier 1: Non-tech title/headline: Project Manager / Project Manager | 12.2+ yrs experience"
+  },
+  {
+    "candidate_id": "CAND_0000046",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000047",
+    "tier": 1,
+    "note": "Tier 1: Non-tech title/headline: Project Manager / Project Manager | Helping teams scale"
+  },
+  {
+    "candidate_id": "CAND_0000049",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000053",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000057",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Customer Support"
+  },
+  {
+    "candidate_id": "CAND_0000064",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Accountant"
+  },
+  {
+    "candidate_id": "CAND_0000065",
+    "tier": 1,
+    "note": "Tier 1: Non-tech title/headline: Project Manager / Project Manager | Driving business outcomes"
+  },
+  {
+    "candidate_id": "CAND_0000066",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Content Writer"
+  },
+  {
+    "candidate_id": "CAND_0000073",
+    "tier": 1,
+    "note": "Tier 1: Non-tech title/headline: Project Manager / Project Manager | 12.1+ yrs experience"
+  },
+  {
+    "candidate_id": "CAND_0000076",
+    "tier": 1,
+    "note": "Tier 1: Non-tech title/headline: Project Manager / Project Manager | Helping teams scale"
+  },
+  {
+    "candidate_id": "CAND_0000079",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Customer Support"
+  },
+  {
+    "candidate_id": "CAND_0000080",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000081",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Accountant"
+  },
+  {
+    "candidate_id": "CAND_0000083",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000084",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Marketing Manager"
+  },
+  {
+    "candidate_id": "CAND_0000085",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000086",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000093",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000094",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000095",
+    "tier": 1,
+    "note": "Tier 1: Noise title: HR Manager"
+  },
+  {
+    "candidate_id": "CAND_0000097",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000100",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000101",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Customer Support"
+  },
+  {
+    "candidate_id": "CAND_0000102",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Operations Manager"
+  },
+  {
+    "candidate_id": "CAND_0000103",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000105",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000106",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Marketing Manager"
+  },
+  {
+    "candidate_id": "CAND_0000107",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000109",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000111",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000114",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Sales Executive"
+  },
+  {
+    "candidate_id": "CAND_0000115",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Operations Manager"
+  },
+  {
+    "candidate_id": "CAND_0000118",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000119",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000120",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000121",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Customer Support"
+  },
+  {
+    "candidate_id": "CAND_0000122",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000124",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Operations Manager"
+  },
+  {
+    "candidate_id": "CAND_0000125",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Sales Executive"
+  },
+  {
+    "candidate_id": "CAND_0000126",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000129",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000132",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Sales Executive"
+  },
+  {
+    "candidate_id": "CAND_0000133",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000135",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000137",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Mechanical Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000139",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Customer Support"
+  },
+  {
+    "candidate_id": "CAND_0000140",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000143",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000144",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000146",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Sales Executive"
+  },
+  {
+    "candidate_id": "CAND_0000147",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000148",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Content Writer"
+  },
+  {
+    "candidate_id": "CAND_0000149",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000150",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Content Writer"
+  },
+  {
+    "candidate_id": "CAND_0000151",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000153",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Graphic Designer"
+  },
+  {
+    "candidate_id": "CAND_0000154",
+    "tier": 1,
+    "note": "Tier 1: Noise title: HR Manager"
+  },
+  {
+    "candidate_id": "CAND_0000156",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Civil Engineer"
+  },
+  {
+    "candidate_id": "CAND_0000161",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Accountant"
+  },
+  {
+    "candidate_id": "CAND_0000163",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Marketing Manager"
+  },
+  {
+    "candidate_id": "CAND_0000166",
+    "tier": 1,
+    "note": "Tier 1: Noise title: Customer Support"
+  },
+  {
+    "candidate_id": "CAND_0000001",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill NLP level 'advanced' has score 38.8 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000003",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Kubernetes duration 34m exceeds YoE 1.1 limit (19.200000000000003m)"
+  },
+  {
+    "candidate_id": "CAND_0000011",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Recommendation Systems duration 40m exceeds YoE 2.0 limit (30.0m)"
+  },
+  {
+    "candidate_id": "CAND_0000012",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill AWS duration 30m exceeds YoE 1.1 limit (19.200000000000003m)"
+  },
+  {
+    "candidate_id": "CAND_0000013",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill React duration 23m exceeds YoE 1.1 limit (19.200000000000003m)"
+  },
+  {
+    "candidate_id": "CAND_0000022",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Django duration 23m exceeds YoE 1.1 limit (19.200000000000003m)"
+  },
+  {
+    "candidate_id": "CAND_0000027",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Data Science level 'advanced' has score 35.1 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000028",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill REST APIs duration 21m exceeds YoE 1.1 limit (19.200000000000003m)"
+  },
+  {
+    "candidate_id": "CAND_0000031",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Pinecone duration 88m exceeds YoE 6.0 limit (78.0m)"
+  },
+  {
+    "candidate_id": "CAND_0000035",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill BentoML duration 59m exceeds YoE 4.3 limit (57.599999999999994m)"
+  },
+  {
+    "candidate_id": "CAND_0000040",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Spring Boot duration 27m exceeds YoE 1.6 limit (25.200000000000003m)"
+  },
+  {
+    "candidate_id": "CAND_0000052",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Webpack duration 35m exceeds YoE 1.4 limit (22.799999999999997m)"
+  },
+  {
+    "candidate_id": "CAND_0000056",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill BentoML duration 48m exceeds YoE 1.3 limit (21.6m)"
+  },
+  {
+    "candidate_id": "CAND_0000058",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Feature Engineering level 'advanced' has score 39.7 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000059",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill GANs duration 26m exceeds YoE 1.5 limit (24.0m)"
+  },
+  {
+    "candidate_id": "CAND_0000067",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Weights & Biases level 'advanced' has score 36.0 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000068",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill SQL duration 27m exceeds YoE 1.5 limit (24.0m)"
+  },
+  {
+    "candidate_id": "CAND_0000071",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill CNN duration 36m exceeds YoE 1.8 limit (27.6m)"
+  },
+  {
+    "candidate_id": "CAND_0000074",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Go duration 34m exceeds YoE 1.9 limit (28.799999999999997m)"
+  },
+  {
+    "candidate_id": "CAND_0000089",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Terraform duration 23m exceeds YoE 1.1 limit (19.200000000000003m)"
+  },
+  {
+    "candidate_id": "CAND_0000090",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill YOLO duration 35m exceeds YoE 1.7 limit (26.4m)"
+  },
+  {
+    "candidate_id": "CAND_0000098",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill MongoDB duration 31m exceeds YoE 1.7 limit (26.4m)"
+  },
+  {
+    "candidate_id": "CAND_0000112",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill GANs duration 58m exceeds YoE 3.8 limit (51.599999999999994m)"
+  },
+  {
+    "candidate_id": "CAND_0000113",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Scrum duration 28m exceeds YoE 1.8 limit (27.6m)"
+  },
+  {
+    "candidate_id": "CAND_0000123",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill BentoML level 'advanced' has score 27.8 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000134",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Reinforcement Learning level 'advanced' has score 38.1 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000141",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill GCP duration 31m exceeds YoE 1.5 limit (24.0m)"
+  },
+  {
+    "candidate_id": "CAND_0000157",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill YOLO duration 47m exceeds YoE 3.1 limit (43.2m)"
+  },
+  {
+    "candidate_id": "CAND_0000164",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Forecasting level 'advanced' has score 30.0 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000176",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Speech Recognition level 'advanced' has score 35.3 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000185",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill MLOps level 'advanced' has score 33.9 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000190",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Feature Engineering duration 60m exceeds YoE 3.7 limit (50.400000000000006m)"
+  },
+  {
+    "candidate_id": "CAND_0000194",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Figma duration 36m exceeds YoE 1.8 limit (27.6m)"
+  },
+  {
+    "candidate_id": "CAND_0000196",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Time Series level 'advanced' has score 35.9 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000199",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Object Detection duration 59m exceeds YoE 3.6 limit (49.2m)"
+  },
+  {
+    "candidate_id": "CAND_0000202",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Forecasting duration 59m exceeds YoE 2.7 limit (38.400000000000006m)"
+  },
+  {
+    "candidate_id": "CAND_0000206",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Feature Engineering level 'advanced' has score 33.3 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000211",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Object Detection level 'advanced' has score 37.5 < 40"
+  },
+  {
+    "candidate_id": "CAND_0000213",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill OpenCV duration 50m exceeds YoE 3.0 limit (42.0m)"
+  },
+  {
+    "candidate_id": "CAND_0000215",
+    "tier": 0,
+    "note": "Tier 0: Honeypot: Skill Kubeflow level 'advanced' has score 30.7 < 40"
+  }
+]
