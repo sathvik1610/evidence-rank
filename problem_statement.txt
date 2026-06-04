@@ -1,0 +1,71 @@
+Hey Sathvik Pilyanam,
+
+The data sandbox is officially open. Track 1 (The AI & Datathon Arena) is where pure developers meet real-world human impact.
+
+If you are looking at the dashboard and wondering exactly how to tackle this challenge, what tools to use, or what a winning submission looks like, this is your quick onboarding blueprint.
+
+The Core Mission (What You Are Building)
+Right now, companies miss out on thousands of brilliant candidates because old-school recruitment tools rely on basic keyword matching. Your job is to build an Intelligent Candidate Discovery & Ranking Engine.
+
+We have provided you with:
+
+A Real-World Job Description (JD): Your anchor point for target skills and requirements.
+A Massive Candidate Dataset: Rich data profiles containing career metadata, historical resumes, skill distributions, and platform activity signals.
+🔗Access the Candidate Dataset Here
+
+Your Goal: Create a system that takes the JD, parses the dataset, and outputs a highly accurate, ranked list of the best candidates. Most importantly, your system must make those rankings explainable.
+
+The Tech Toolkit (How to Build It)
+
+We have intentionally left the architecture completely open. There are no rigid rules or constraints. You have total creative freedom to use whatever stack ships the most accurate results.
+
+Semantic Search & Vector Embeddings  |   LLM-Powered Ranking Workflows  |  Hybrid Scoring Systems  |   Custom Retrieval Pipelines
+
+The Submission Checklist
+
+To claim your piece of the ₹50 Lakh+ Prize Pool, your final milestone submission must include:
+
+The Code: Clean, readable, and well-documented code detailing your data parsing and model execution.
+The System Architecture Note: A brief breakdown or diagram of your system pipeline.
+A Brief Video Demo: A quick screencast showing your engine in action—taking a requirement and spitting out the explainable, ranked candidate results.
+Demo Template: Use this submission layout
+
+Why This Matters (Beyond the Prize Money)
+
+Yes, the prize money can upgrade your entire workstation or fund your next startup idea. But the real reward? The industry is watching.
+
+You are building proprietary IP that could change how millions of people across India find work. Stop querying dummy datasets.
+
+LOG IN & START BUILDING  ➔
+Let's build what the next India runs on. 
+
+Best Regards,
+Team Hack2skill × Redrob
+#INDIARUNS
+
+Recruiters go through hundreds of profiles and still often miss the right person. Not because the talent isn't there — but because keyword filters can't see what actually matters.
+
+Build an AI system that ranks candidates the way a great recruiter would — not by matching keywords, but by actually understanding who fits the role. 
+
+Note: Please refer to the Data Sets here: Click Here
+
+
+What your solution needs to do?
+
+Read a job description and actually understand what the role needs — not just pull out words.
+
+Look at the full picture — career history, skills, behavioral signals, platform activity — and figure out who genuinely fits.
+
+Deliver a shortlist that a recruiter can trust.
+
+How you build it is up to you. Semantic search, LLM ranking, vector embeddings, hybrid scoring — bring whatever you think works best. There's no prescribed architecture. The outcome is what gets judged.
+
+What to submit
+
+1. Your GitHub repo — clean, complete, working code.
+
+2. A deck/PPT converted into a PDF explaining your approach — what you built, why you built it that way, and how it works.
+
+3. A ranked output file of your recommended candidates in the format provided.
+
+That's it. Build something real. Make hiring smarter.
