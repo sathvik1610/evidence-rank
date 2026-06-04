@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project artifacts (generated during pipeline — do not commit)
+artifacts/high_signal_pool.jsonl
+artifacts/candidate_career_embeddings.npy
+artifacts/candidate_skills_embeddings.npy
+artifacts/embedding_candidate_ids.npy
+artifacts/candidate_features.parquet
+
+# Keep optimized weights in git (small file, important for reproducibility)
+# artifacts/optimized_weights.json → committed
+
+# Local LLM model (large binary, not committed)
+models/
+
+# HuggingFace model cache
+.cache/
+
+# Submission output
+submission.csv
+
+# Data given — large files excluded, schema/samples committed
+Data given/candidates.jsonl
+Data given/candidates.jsonl.gz
+
+# Scratch / temp
+scratch/
+tmp/
+*.tmp
+*.log
