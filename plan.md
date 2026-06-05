@@ -83,7 +83,7 @@ The system executes in two strictly separated environments:
 - Phase 1d: Compute retrieval RRF scores offline; save to `retrieval_scores.parquet`
 
 **Runtime Ranking Engine (`rank.py`, must complete in under 5 minutes on CPU, no network):**
-- Phase 2: Load precomputed retrieval scores → filter to 3,000–5,000 candidates (< 5s)
+- Phase 2: Load precomputed retrieval scores → filter to top 3,000 candidates (configurable via weights.yaml) (< 5s)
 - Phase 3: Load precomputed candidate features from parquet (< 5s)
 - Phase 4: Load precomputed cross-encoder scores + compute weighted final score → top 200–300 (< 30s)
 - Phase 5: Behavioral re-ranking + penalization → top 100 (< 10s)
@@ -113,6 +113,7 @@ Validation must be performed on the 150-200 manually-labeled candidates without 
 ```
 ├── rank.py                        # Runtime entry point
 ├── preprocess.py                  # Offline pipeline runner
+├── weights.yaml                   # Dynamic weights, multipliers, boosts, and thresholds config file
 ├── requirements.txt
 ├── submission_metadata.yaml
 ├── README.md
@@ -123,7 +124,7 @@ Validation must be performed on the 150-200 manually-labeled candidates without 
 │   ├── features.py                # Phase 3: Bucket A/B/C extraction
 │   ├── scorer.py                  # Phase 4: Weighted scoring formula
 │   ├── reranker.py                # Phase 4: Cross-encoder reranking
-│   ├── behavioral.py              # Phase 5: Behavioral multipliers
+│   ├── behavioral.py              # Phase 5: Behavioral multipliers, seniority, and penalties
 │   └── explainer.py              # Phase 6: Reason generation
 ├── metadata/
 │   └── validation_set.json        # Hand-labeled validation set (150-200 candidates)
@@ -148,17 +149,19 @@ Validation must be performed on the 150-200 manually-labeled candidates without 
 
 `preprocess.py` — Offline pipeline runner. JD intelligence, corpus embedding, FAISS index building, honeypot flagging, ghost pre-filtering, cross-encoder inference, feature extraction, retrieval scoring. No time constraint. May take 1–4 hours on CPU.
 
+`weights.yaml` — Dynamic configuration file containing all scoring weights, multipliers, boosts, and thresholds. Loaded at startup by both pipelines to avoid hardcoded parameter logic.
+
 `app.py` — HuggingFace Spaces demo sandbox. Heuristic BM25-only path; no transformer model loads. Accepts small JSON payloads for interactive demonstration.
 
 `src/retriever.py` — At preprocess time: FAISS dense search + BM25 sparse search + RRF fusion → saves `retrieval_scores.parquet`. At rank time: loads parquet, filters to top N.
 
 `src/features.py` — At preprocess time: regex-based Bucket A/B/C extraction on all retrieved candidates → saves `candidate_features.parquet`. At rank time: loads parquet.
 
-`src/scorer.py` — Weighted formula: must-have (60%), nice-to-have (20%), career quality (20%). Pure pandas/numpy; no model calls.
+`src/scorer.py` — Weighted formula: must-have (55%), nice-to-have (10%), career quality (15%), product builder (20%). Pure pandas/numpy; no model calls.
 
 `src/reranker.py` — At preprocess time only: cross-encoder scoring using `bge-reranker-v2-m3` on top 500 → saves `cross_encoder_scores.parquet`. At rank time: loads parquet, merges scores.
 
-`src/behavioral.py` — Multiplicative modifiers: availability, notice, location, social proof.
+`src/behavioral.py` — Multiplicative modifiers: availability, notice, location, social proof, seniority, writing signal, soft penalties, and 90-day bonus.
 
 `src/explainer.py` — Reason generation with 90-day plan framing and evidence injection.
 
@@ -355,7 +358,11 @@ def is_honeypot(candidate) -> bool:
     These are forced to relevance tier 0 in the ground truth.
     A True return means final_score = 0.0 — excluded from top 100.
     """
-    yoe = candidate["profile"].get("years_of_experience", 0)
+    yoe = candidate.get("profile", {}).get("years_of_experience")
+    if yoe is None:
+        # If missing, derive from career history so we don't accidentally honeypot everyone
+        total_months = sum(r.get("duration_months", 0) for r in candidate.get("career_history", []))
+        yoe = total_months / 12.0
     yoe_months = yoe * 12
     skills = candidate.get("skills", [])
     career = candidate.get("career_history", [])
@@ -387,6 +394,43 @@ def is_honeypot(candidate) -> bool:
         if role_duration > yoe_months + 12:
             return True
 
+    # Check 5: The "LLM Repetition" Trap
+    # 10+ skills and every single one has the exact same duration_months
+    if len(skills) >= 10:
+        durations = {s.get("duration_months") for s in skills if "duration_months" in s}
+        if len(durations) == 1 and list(durations)[0] is not None:
+            return True
+
+    # Check 6: The "Empty Shell" Trap
+    # Claiming > 5 years of experience but having zero job history
+    if yoe > 5 and len(career) == 0:
+        return True
+
+    # Check 7: The "Impossible Overlap" Trap
+    # Sum of all job durations is > 1.5x their stated YoE (hallucinated timelines)
+    if yoe_months > 0:
+        total_career_months = sum(r.get("duration_months", 0) for r in career)
+        # Give a grace period for small overlaps, but flag massive >1.5x concurrency
+        if total_career_months > (yoe_months * 1.5) + 12:
+            return True
+
+    # Check 8: Company Founding Time Travel
+    # JD warning: "8 years of experience at a company founded 3 years ago"
+    KNOWN_COMPANIES = {
+        "anthropic": 2021, "openai": 2015, "hugging face": 2016, "huggingface": 2016,
+        "pinecone": 2019, "qdrant": 2021, "weaviate": 2019, "langchain": 2022,
+        "llamaindex": 2022, "redrob": 2023, "cohere": 2019, "mistral": 2023
+    }
+    for role in career:
+        company = role.get("company", "").lower()
+        duration_years = role.get("duration_months", 0) / 12.0
+        for comp_name, founded_year in KNOWN_COMPANIES.items():
+            if comp_name in company:
+                # Assuming current year is 2026 per hackathon timeline
+                max_possible_years = 2026 - founded_year + 1 
+                if duration_years > max_possible_years:
+                    return True
+
     return False
 ```
 
@@ -404,9 +448,13 @@ A ghost profile is one that is effectively unreachable regardless of fit. Pre-fi
 from datetime import date
 
 def is_ghost(candidate, reference_date) -> bool:
+    # Note: ghost pre-filtering is irreversible. The reference_date used here is locked
+    # at preprocess time. If the evaluation payload contains newer dates, pre-filtered
+    # candidates cannot be recovered.
     signals = candidate.get("redrob_signals", {})
     last_active_str = signals.get("last_active_date")
     if last_active_str is None:
+        # Default to False (active). Missing dates could represent newly-imported profiles.
         return False
     days_inactive = (reference_date - date.fromisoformat(last_active_str)).days
     return (
@@ -440,11 +488,11 @@ def tag_disqualifiers(candidate) -> dict:
         if any(firm in r.get("company", "").lower() for firm in CONSULTING_FIRMS)
         or r.get("industry", "").lower() in ("it services", "consulting", "outsourcing")
     )
-    product_ratio = 1.0 - (consulting_months / total_months) if total_months > 0 else 0.5
+    product_ratio = 1.0 - (consulting_months / total_months) if total_months > 0 else 0.0
     consulting_only = product_ratio == 0.0
 
     # research_only: only academic/research titles, no engineer/developer roles
-    engineering_titles = {"engineer", "developer", "scientist", "architect", "lead", "head"}
+    engineering_titles = {"engineer", "developer", "data scientist", "applied scientist", "architect", "lead", "head"}
     research_titles = {"researcher", "research scientist", "phd", "postdoc", "intern"}
     has_engineering = any(t in " ".join(titles_lower) for t in engineering_titles)
     has_only_research = not has_engineering and any(t in " ".join(titles_lower) for t in research_titles)
@@ -487,7 +535,9 @@ Save `artifacts/candidate_flags.parquet` with one row per candidate:
 
 **At preprocess time (`preprocess.py`):** Runs FAISS dense search, BM25 sparse search, and RRF fusion against all 100K candidates. Saves ranked candidate IDs and RRF scores to `artifacts/retrieval_scores.parquet`. This is a one-time operation.
 
-**At rank time (`rank.py`):** Loads `retrieval_scores.parquet` (pure pandas read), filters to top 5,000 by RRF score, optionally applies soft activity boost from `candidate_flags.parquet`. **No FAISS or BM25 calls at rank time.**
+**At rank time (`rank.py`):** Loads `retrieval_scores.parquet` (pure pandas read), filters to top N by RRF score, optionally applies soft activity boost from `candidate_flags.parquet`. **No FAISS or BM25 calls at rank time.**
+
+**Retrieval pool size tuning:** Precompute saves the top 5,000 candidates to `retrieval_scores.parquet`. At runtime, we filter this down to the top N = 3,000 (controlled by `pool_size` in `weights.yaml`). Experiment with 2,000–3,000; the RRF-ranked pool drops off steeply in quality after the top 2,000, and a smaller pool reduces Phase 4 scoring time. Only increase beyond 3,000 if validation shows recall loss (Tier 3+ candidates missing from the Phase 4 input — check against `metadata/validation_set.json`).
 
 Target rank-time cost: under 5 seconds on CPU.
 
@@ -546,8 +596,8 @@ Before RRF, lightly boost candidates who are actively seeking. This prevents act
 def rrf(ranked_lists: list[list[str]], k: int = 60) -> dict[str, float]:
     scores = {}
     for ranked in ranked_lists:
-        for rank, cand_id in enumerate(ranked):
-            scores[cand_id] = scores.get(cand_id, 0.0) + 1.0 / (k + rank + 1)
+        for rank_idx, cand_id in enumerate(ranked):
+            scores[cand_id] = scores.get(cand_id, 0.0) + 1.0 / (k + rank_idx + 1)
     return scores
 
 rrf_scores = rrf([dense_ids_skills, dense_ids_ideal, sparse_ids])
@@ -660,20 +710,20 @@ Per-skill score 0–3:
 
 ```python
 TARGET_SKILLS = {
-    "retrieval_search": ["faiss", "pinecone", "qdrant", "milvus", "weaviate", "opensearch",
-                         "elasticsearch", "retrieval", "search", "vector search", "bm25"],
-    "vector_db_hybrid": ["vector database", "hybrid search", "dense retrieval", "sparse retrieval",
-                         "embedding search", "ann", "approximate nearest"],
-    "eval_framework": ["ndcg", "mrr", "map", "mean average precision", "a/b test",
-                       "offline evaluation", "online evaluation", "ranking metric"],
-    "ltr_reranking": ["learning to rank", "lambdamart", "xgboost", "reranker", "cross-encoder",
-                       "pairwise ranking", "listwise"],
-    "llm_integration": ["llm", "fine-tuning", "lora", "qlora", "peft", "rag",
-                        "retrieval augmented", "prompt engineering"],
+    "retrieval_search": RETRIEVAL_PATTERNS + [r"bm25"],
+    "vector_db_hybrid": [r"vector database", r"hybrid search", r"dense retrieval", r"sparse retrieval",
+                         r"embedding search", r"ann\b", r"approximate nearest"],
+    "eval_framework": EVALUATION_PATTERNS,
+    "ltr_reranking": RANKING_PATTERNS + [r"cross.encoder", r"bi.encoder"],
+    "llm_integration": [r"llm", r"fine.tuning", r"lora", r"qlora", r"peft", r"rag",
+                        r"retrieval augmented", r"prompt engineering"],
     # JD Must-Have: "Strong Python. Yes really, we care about code quality."
     # Detect Python use in career descriptions, not just skills section listing.
-    "python_coding": ["python", "fastapi", "flask", "django", "pyspark", "asyncio",
-                      "pytest", "type hints", "mypy", "poetry", "pyproject"]
+    "python_coding": [r"python", r"fastapi", r"flask", r"django", r"pyspark", r"asyncio",
+                      r"pytest", r"type hints", r"mypy", r"poetry", r"pyproject"],
+    # JD Nice-to-Haves
+    "distributed_systems": [r"distributed system", r"inference optimization", r"tensorrt", r"vllm", r"triton", r"high throughput", r"large scale inference"],
+    "hr_tech_exposure": [r"hr tech", r"hr.tech", r"recruiting tech", r"talent acquisition", r"applicant tracking", r"marketplace"]
 }
 
 def score_skill_bucket(candidate, career_text):
@@ -688,15 +738,18 @@ def score_skill_bucket(candidate, career_text):
         )
         career_evidence = []
         for kw in keywords:
-            matches = [m.group() for m in re.finditer(kw, career_text, re.IGNORECASE)]
+            matches = list(re.finditer(kw, career_text, re.IGNORECASE))
             if matches:
                 # Find a 60-char snippet around the first match
-                idx = career_text.lower().find(kw)
+                idx = matches[0].start()
                 snippet = career_text[max(0, idx-30):idx+60].strip()
                 career_evidence.append(snippet)
 
+        # Check for production signals localized to the extracted snippets
+        # (instead of anywhere in the 10-year career history)
         has_production = any(
-            re.search(p, career_text, re.IGNORECASE) for p in PRODUCTION_PATTERNS
+            re.search(p, snippet, re.IGNORECASE)
+            for p in PRODUCTION_PATTERNS for snippet in career_evidence
         )
 
         # Determine score
@@ -738,6 +791,8 @@ def score_career_quality(candidate, career_text, flags):
 
     # Experience recency: is the most recent role in a relevant domain?
     career = candidate.get("career_history", [])
+    # Ensure career history is sorted by recency (assuming descending date order)
+    # The competition JSONL typically has the current role at index 0.
     recent_role = career[0] if career else {}
     recent_desc = recent_role.get("description", "").lower()
     recent_relevant = any(
@@ -777,6 +832,29 @@ def score_career_quality(candidate, career_text, flags):
     avg_desc_len = sum(len(d) for d in descriptions) / len(descriptions) if descriptions else 0
     writing_signal = 1.00 if avg_desc_len >= 150 else (0.95 if avg_desc_len >= 60 else 0.90)
 
+    # Product Builder Score — explicit composite of founding-team and shipping signals.
+    # Computed here (Bucket B) so Phase 4 can use it as a first-class 20% scoring component.
+    # The JD emphasises product-company background, shipping velocity, and ownership
+    # at least as much as specific ML tool keywords (§1.2: shipper vs researcher distinction).
+    _OWNERSHIP_PATTERNS = [
+        r"built from scratch", r"founded", r"co-founder", r"led.*team",
+        r"ownership", r"end.to.end", r"greenfield", r"zero to one"
+    ]
+    ownership_signal = any(re.search(p, career_text, re.IGNORECASE) for p in _OWNERSHIP_PATTERNS)
+    product_builder_score = (
+        0.35 * product_ratio +                       # Time-weighted product-company career fraction
+        0.30 * deploy_signal +                       # Production/scale deployment language density
+        0.20 * shipper_ratio +                       # Shipper vs researcher vocabulary ratio
+        0.15 * (1.0 if ownership_signal else 0.0)   # End-to-end ownership / startup language
+    )
+    # Disqualifier multipliers: consulting/research backgrounds cannot score high as product builders
+    if flags.get("consulting_only"):
+        product_builder_score *= 0.4
+    if flags.get("research_only"):
+        product_builder_score *= 0.5
+    if flags.get("wrong_domain"):
+        product_builder_score *= 0.3
+
     return {
         "product_ratio": product_ratio,
         "deploy_signal": deploy_signal,
@@ -784,7 +862,9 @@ def score_career_quality(candidate, career_text, flags):
         "depth_signal": depth_signal,
         "shipper_ratio": shipper_ratio,
         "writing_signal": writing_signal,
-        "sys_experience_score": sys_experience_score
+        "sys_experience_score": sys_experience_score,
+        "product_builder_score": product_builder_score,
+        "ownership_signal": ownership_signal
     }
 ```
 
@@ -845,9 +925,11 @@ def compute_consistency_score(candidate, career_text) -> float:
         contradictions = 0
 
         # Check 1: Career title contradiction — claimed domain not reflected in any role title
+        # Checked against current title only to avoid penalizing legitimate career progression
+        current_title = candidate.get("profile", {}).get("current_title", "").lower()
         for domain, bad_titles in DOMAIN_TITLE_CONTRADICTION.items():
             if domain in name:
-                if any(bt in all_titles for bt in bad_titles):
+                if any(bt in current_title for bt in bad_titles):
                     contradictions += 1
                 break
 
@@ -896,13 +978,6 @@ def score_fit_gaps(candidate, career_text, flags):
     github_score = signals.get("github_activity_score", -1)
     has_external_text = any(re.search(p, career_text, re.IGNORECASE) for p in EXTERNAL_VALIDATION_TERMS)
     external_validation = github_score > 0 or has_external_text
-
-    # Startup / ownership signal: shipped quickly, built from scratch, ownership
-    OWNERSHIP_TERMS = [
-        r"built from scratch", r"founded", r"co-founder", r"led.*team",
-        r"ownership", r"end.to.end", r"greenfield", r"zero to one"
-    ]
-    ownership_signal = any(re.search(p, career_text, re.IGNORECASE) for p in OWNERSHIP_TERMS)
 
     # Code stopped: architect/VP/Director with yoe > 8 (likely stopped coding)
     yoe = candidate["profile"].get("years_of_experience", 0)
@@ -960,7 +1035,6 @@ def score_fit_gaps(candidate, career_text, flags):
         "title_velocity_flag": title_velocity_flag,
         "consulting_flag": consulting_flag,
         "external_validation": external_validation,
-        "ownership_signal": ownership_signal,
         "code_stopped": code_stopped,
         "seniority_score": seniority_score,
         "langchain_only_flag": langchain_only_flag,
@@ -1044,6 +1118,29 @@ def extract_behavioral(candidate, reference_date) -> dict:
 > days_inactive = (ref - date.fromisoformat(last_active_str)).days if last_active_str else 180
 > ```
 
+### 7.8 Candidate Features Parquet Schema
+
+`artifacts/candidate_features.parquet` is the central feature store containing all offline-computed signals.
+
+| Column | Type | Notes |
+|---|---|---|
+| `candidate_id` | string | Primary key |
+| `retrieval_search` | float | Bucket A score (0–3) |
+| `vector_db_hybrid` | float | Bucket A score (0–3) |
+| `eval_framework` | float | Bucket A score (0–3) |
+| `ltr_reranking` | float | Bucket A score (0–3) |
+| `llm_integration` | float | Bucket A score (0–3) |
+| `python_coding` | float | Bucket A score (0–3) |
+| `distributed_systems` | float | Bucket A score (0–3) |
+| `hr_tech_exposure` | float | Bucket A score (0–3) |
+| `experience_recency` | float | Bucket B recency signal |
+| `depth_signal` | float | Bucket B depth signal |
+| `sys_experience_score` | float | Bucket B system evidence |
+| `product_builder_score`| float | Bucket B composite (normalized [0,1]) |
+| `seniority_score` | float | Bucket C (from `score_fit_gaps`) |
+| `consistency_score` | float | Skill claim contradiction penalty |
+| `snippets_json` | string | JSON dict of the best 60-char evidence snippets |
+
 ---
 
 ## 8. Phase 4 — Core Scoring + Cross-Encoder Rerank
@@ -1052,18 +1149,20 @@ def extract_behavioral(candidate, reference_date) -> dict:
 
 ```python
 def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float:
-    # --- Must-Have Score (60% of total) ---
+    # --- Must-Have Score (55% of total) ---
     # Source: Bucket A skill evidence scores
-    retrieval_ev = bucket_a["retrieval_search"] / 3.0
-    vectordb_ev = bucket_a["vector_db_hybrid"] / 3.0
-    eval_ev = bucket_a["eval_framework"] / 3.0
+    retrieval_ev = bucket_a.get("retrieval_search", 0.0) / 3.0
+    vectordb_ev = bucket_a.get("vector_db_hybrid", 0.0) / 3.0
+    eval_ev = bucket_a.get("eval_framework", 0.0) / 3.0
+    python_ev = bucket_a.get("python_coding", 0.0) / 3.0
 
     must_have_raw = (
         0.25 * retrieval_ev +
         0.20 * vectordb_ev +
-        0.15 * eval_ev
+        0.10 * eval_ev +
+        0.05 * python_ev
     )
-    
+
     # Get system experience score from Bucket B
     sys_experience_score = bucket_b.get("sys_experience_score", 0.0)
 
@@ -1079,29 +1178,33 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
         must_have_raw = min(must_have_raw, 0.5)
 
     must_have_score = must_have_raw / 0.60  # Normalize to [0,1]
+    must_have_score = min(must_have_score, 1.0)  # Cap at 1.0 in case of assessment bonuses
 
-    # --- Nice-to-Have Score (20%) ---
-    ltr_ev = bucket_a["ltr_reranking"] / 3.0
-    llm_ev = bucket_a["llm_integration"] / 3.0
-    # hrtech_signal removed: depth_signal ≠ HR-tech exposure;
-    # its 0.05 weight redistributed to ltr_ev (most JD-adjacent nice-to-have after LLM).
+    # --- Nice-to-Have Score (10%) ---
+    # Weight reduced from 20% → 10%; headroom reallocated to Product Builder Score.
+    ltr_ev = bucket_a.get("ltr_reranking", 0.0) / 3.0
+    llm_ev = bucket_a.get("llm_integration", 0.0) / 3.0
+    dist_ev = bucket_a.get("distributed_systems", 0.0) / 3.0
+    hr_ev = bucket_a.get("hr_tech_exposure", 0.0) / 3.0
 
     nice_to_have_score = (
-        0.13 * ltr_ev +
-        0.07 * llm_ev
-    ) / 0.20  # Normalize to [0,1]
+        0.04 * ltr_ev +
+        0.03 * llm_ev +
+        0.02 * dist_ev +
+        0.01 * hr_ev
+    ) / 0.10  # Normalize to [0,1]
 
-    # --- Career Quality Score (20%) ---
-    product_ratio = bucket_b["product_ratio"]
-    deploy_signal = bucket_b["deploy_signal"]
-    shipper_ratio = bucket_b["shipper_ratio"]
+    # --- Career Quality Score (15%) ---
+    # Focused on career-trajectory quality: domain relevance, recency, depth.
+    # Product company + deployment + shipper signals moved to Product Builder Score below
+    # so they have an explicit, first-class presence in the formula.
+    experience_recency = bucket_b["experience_recency"]
+    depth_signal = bucket_b["depth_signal"]
 
-    # Explicitly weights search/ranking/recommendation production experience
     career_quality_raw = (
-        0.08 * product_ratio +
-        0.06 * deploy_signal +
-        0.04 * sys_experience_score +
-        0.02 * shipper_ratio
+        0.08 * sys_experience_score +  # Built the right kind of systems
+        0.04 * experience_recency +    # Most recent role in a relevant domain
+        0.03 * depth_signal            # IR/retrieval evidence sustained across multiple roles
     )
 
     # Consulting/research/wrong-domain multipliers
@@ -1112,13 +1215,22 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
     if flags.get("wrong_domain"):
         career_quality_raw *= 0.3
 
-    career_quality_score = career_quality_raw / 0.20  # Normalize to [0,1]
+    career_quality_score = career_quality_raw / 0.15  # Normalize to [0,1]
+
+    # --- Product Builder Score (20%) ---
+    # Explicit composite of founding-team and shipping signals.
+    # The JD emphasises product-company background, shipping velocity, and ownership
+    # at least as much as specific ML tool keywords (§1.2). Computed in Bucket B
+    # (score_career_quality) so career-description evidence is available at extraction time.
+    # Note: product_builder_score is already normalized to [0,1] within Bucket B.
+    product_builder_score = bucket_b.get("product_builder_score", 0.0)
 
     # --- Combined Weighted Score ---
     core_score = (
-        0.60 * must_have_score +
-        0.20 * nice_to_have_score +
-        0.20 * career_quality_score
+        0.55 * must_have_score +
+        0.10 * nice_to_have_score +
+        0.15 * career_quality_score +
+        0.20 * product_builder_score
     )
 
     return float(core_score)
@@ -1131,6 +1243,8 @@ The cross-encoder (`bge-reranker-v2-m3`) runs **entirely offline** in `preproces
 **Why 500?** NDCG@50 and MAP both matter — a candidate at rank ~150 after handcrafted scoring may deserve top 20 after semantic reranking. 300 was too conservative for those metrics. 500 is still tiny at precompute time (offline, no time limit).
 
 **Why offline?** Cross-encoder inference on 500 candidates takes ~2.5 min on CPU (~300ms/doc × 500 docs). Moving it offline eliminates the largest single runtime cost entirely.
+
+**CE weight validation (do this before submission):** The 0.20 CE weight is an assumption. Before finalising, compare NDCG@10 with CE weight = 0 vs 0.10 vs 0.20 on the validation set. If the gain is <2–3 NDCG points, reduce to 0.10 or remove the merge entirely (set `cross_encoder_score` contribution to 0). The handcrafted evidence scoring already captures much of the semantic signal; the CE is most valuable when it separates candidates with near-identical Bucket A scores.
 
 **Preprocess-time code (in `preprocess.py`):**
 ```python
@@ -1156,9 +1270,9 @@ ce_df.to_parquet("artifacts/cross_encoder_scores.parquet", index=False)
 import pandas as pd
 
 ce_df = pd.read_parquet("artifacts/cross_encoder_scores.parquet")
-# Left-join onto scored_candidates; candidates not in top 500 get CE score = 0.0
-scored_df = scored_df.merge(ce_df, on="candidate_id", how="left")
-scored_df["cross_encoder_score"] = scored_df["cross_encoder_score"].fillna(0.0)
+    # Left-join onto scored_candidates; candidates not in top 500 fall back to their core score
+    scored_df = scored_df.merge(ce_df, on="candidate_id", how="left")
+    scored_df["cross_encoder_score"] = scored_df["cross_encoder_score"].fillna(scored_df["core_score"])
 
 # Merge: 0.8 handcrafted + 0.2 cross-encoder
 # Rationale: handcrafted features encode behavioral signals (hireability, notice period,
@@ -1183,10 +1297,12 @@ def availability_multiplier(behavioral) -> float:
     open_to_work = behavioral["open_to_work"]
     interview_rate = behavioral["interview_completion_rate"]
 
-    if days_inactive <= 30 and response_rate >= 0.70 and open_to_work:
+    if days_inactive <= 30 and response_rate >= 0.70 and (open_to_work or interview_rate >= 0.80):
         return 1.15  # Actively seeking, highly reachable
     elif days_inactive <= 90 and response_rate >= 0.50:
         return 1.05  # Recently active and responsive
+    elif days_inactive <= 180 and response_rate >= 0.30:
+        return 0.80  # Moderately passive
     elif days_inactive > 180 or response_rate < 0.15:
         return 0.70  # Practically unreachable; softened from 0.50 — competition scores relevance, not hireability
     else:
@@ -1214,7 +1330,7 @@ def notice_modifier(days) -> float:
 ```python
 PUNE_NOIDA_CITIES = {"pune", "noida", "greater noida", "delhi", "new delhi",
                       "gurugram", "gurgaon", "faridabad", "ghaziabad"}
-JD_WELCOME_CITIES = {"hyderabad", "mumbai", "delhi", "pune"}
+JD_WELCOME_CITIES = {"hyderabad", "mumbai"}
 INDIA_ADJACENT = {"bangalore", "bengaluru", "chennai", "kolkata",
                    "ahmedabad", "indore", "jaipur", "chandigarh", "kochi"}
 
@@ -1242,16 +1358,40 @@ def location_modifier(behavioral) -> float:
 
 ```python
 def social_proof_boost(behavioral) -> float:
+    """
+    Additive boost from Redrob platform signals not already captured by multipliers.
+    Uses 9 of the 23 redrob_signals fields. Cap at 0.12 so no single cluster dominates.
+    """
     boost = 0.0
+
+    # --- Market validation (other recruiters already found this person valuable) ---
     if behavioral["github_activity_score"] > 60:
-        boost += 0.03
+        boost += 0.03  # JD: external validation valued; open-source contributions
     if behavioral["saved_by_recruiters_30d"] > 5:
-        boost += 0.04  # Upgraded: human-curated market validation
+        boost += 0.04  # Human-curated: other recruiters are already shortlisting them
+    if behavioral.get("profile_views_received_30d", 0) > 20:
+        boost += 0.01  # Passive market interest — searched for and clicked on
+
+    # --- Engagement quality (serious about the job search) ---
     if behavioral["endorsements_received"] > 20:
-        boost += 0.01
+        boost += 0.01  # Peer credibility signal
+    if behavioral.get("interview_completion_rate", 0) > 0.80:
+        boost += 0.02  # Shows up and follows through — predictive of offer conversion
+    if behavioral.get("offer_acceptance_rate", -1) > 0.70:
+        boost += 0.01  # When they receive offers they accept them — not just browsing
+
+    # --- Profile credibility ---
+    if behavioral.get("profile_completeness_score", 0) > 80:
+        boost += 0.01  # Actively managing profile = genuinely in the market
     if behavioral["linkedin_connected"]:
-        boost += 0.01
-    return boost
+        boost += 0.01  # Basic platform legitimacy
+
+    # --- Response speed (availability complement) ---
+    avg_rt = behavioral.get("avg_response_time_hours", 24.0)
+    if avg_rt <= 4.0 and behavioral["recruiter_response_rate"] >= 0.60:
+        boost += 0.01  # Fast AND responsive — highest-reachability signal
+
+    return min(boost, 0.12)  # Cap: no single signal cluster should dominate final score
 ```
 
 ### 9.5 Seniority modifier
@@ -1270,6 +1410,8 @@ def seniority_modifier(bucket_c) -> float:
 ### 9.6 Soft penalties
 
 All penalties are **soft multipliers**. The JD uses language like "probably not move forward" and "the bar gets higher" — not "automatic reject". Only honeypots and ghosts are zeroed out. Everything else is a downward nudge that strong technical evidence can overcome.
+
+> **Validate harsh penalties before trusting them.** The multipliers below (`consulting_only ×0.4`, `research_only ×0.40`, `langchain_only_flag ×0.45`) are calibrated from JD language but have not yet been tested against the actual labeled set. If Redrob intentionally inserted edge-case candidates — e.g. a strong researcher with genuine product exposure, or a LangChain practitioner with a deep pre-LLM ML background — these will over-penalise real fits. Run Phase 7 validation against `metadata/validation_set.json` first. In particular: confirm that no Tier 3+ labeled candidate is being hard-penalised by a flag that misread their profile.
 
 ```python
 def soft_penalties(bucket_c, flags, behavioral, consistency_score) -> float:
@@ -1292,7 +1434,8 @@ def soft_penalties(bucket_c, flags, behavioral, consistency_score) -> float:
         multiplier *= 0.45
 
     # Remote-only preference for a hybrid role
-    if behavioral["preferred_work_mode"] == "remote":
+    pref_mode = behavioral.get("preferred_work_mode", "").lower().strip()
+    if pref_mode in ("remote", "wfh", "work from home"):
         multiplier *= 0.85
 
     # Research-only background — JD: "will not move forward" — strongest language
@@ -1331,36 +1474,53 @@ def compute_final_score(candidate_data) -> float:
         return 0.0
 
     avail_mult = availability_multiplier(behavioral)
+    penalty_mult = soft_penalties(bucket_c, flags, behavioral, consistency_score)
+
+    # Logistical signals: notice period, location, seniority, writing culture.
+    # Grouped and floor-capped so no single operational signal collapses the score.
     notice_mult = notice_modifier(behavioral["notice_period_days"])
     loc_mult = location_modifier(behavioral)
     seniority_mult = seniority_modifier(bucket_c)
-    social_boost = social_proof_boost(behavioral)
-    penalty_mult = soft_penalties(bucket_c, flags, behavioral, consistency_score)
-
-    # Writing signal: JD says "we write a lot"
     writing_mult = bucket_b.get("writing_signal", 1.0)
 
-    # 90-day plan alignment score and multiplier:
-    # Ensures the candidate has direct evidence for the milestones they must execute in the first 90 days.
+    logistical_mult = notice_mult * loc_mult * seniority_mult * writing_mult
+    logistical_mult = max(logistical_mult, 0.75)  # Floor: logistics cannot reduce score by >25%
+
+    # Combined multiplier floor: prevents the full chain (availability × penalties × logistics)
+    # from collapsing a strong technical score into near-zero. Strong technical fit must
+    # always be able to show through — no variable cluster should dominate alone.
+    combined_mult = avail_mult * penalty_mult * logistical_mult
+    combined_mult = max(combined_mult, 0.25)  # Floor: maximum total reduction is 75%
+
+    # Additive bonuses — reward without gating.
+    # 90-day alignment: JD describes 3 milestones (audit retrieval, ship v2 ranker, build eval
+    # framework). Moved from multiplicative to additive: being able to execute all 3 on day 1
+    # is a bonus signal, not a disqualifier. Missing milestone evidence ≠ wrong hire.
     product_ratio = bucket_b.get("product_ratio", 0.5)
     ninety_day_alignment = compute_ninety_day_alignment(bucket_a, product_ratio)
-    ninety_day_mult = 0.85 + 0.25 * ninety_day_alignment
+    ninety_day_bonus = 0.08 * ninety_day_alignment  # Range: 0.0 to +0.08
+
+    # Platform signals: market validation, engagement quality, profile credibility.
+    # Uses 9 of the 23 redrob_signals fields not already captured in multipliers above.
+    social_boost = social_proof_boost(behavioral)  # Range: 0.0 to +0.12 (capped)
 
     # Final formula:
-    # phase4_score encodes technical fit (must-haves 60% + nice-to-haves 20% + career quality 20%)
-    # Each multiplier applies one JD dimension: availability, notice, location, seniority, penalties, alignment
-    # Social boost is additive: small upward nudge from human-validated market signals
+    # Multiplicative chain: technical fit × strong behavioral gates × logistical group (capped)
+    # Additive bonuses: 90-day milestone readiness + Redrob platform signal cluster
+    # No single variable can move the score by more than ~75% on its own — mix of signals.
     final = (
         phase4_score
-        * avail_mult
-        * notice_mult
-        * loc_mult
-        * seniority_mult
-        * penalty_mult
-        * writing_mult
-        * ninety_day_mult
+        * combined_mult
+        + ninety_day_bonus
         + social_boost
     )
+
+    # Floor protection: if penalties drop the score near zero, ensure it hits 0.0 to drop out of ranking
+    if penalty_mult < 0.20:
+        return 0.0
+
+    # Score range bounding (max 2.0)
+    final = min(final, 2.0)
 
     return round(float(final), 6)
 
@@ -1379,6 +1539,11 @@ def assign_ranks(scored_candidates: list[dict]) -> list[dict]:
     )
     for rank, c in enumerate(sorted_cands, start=1):
         c["rank"] = rank
+        
+    # Validation constraint check (non-increasing score)
+    for i in range(1, len(sorted_cands)):
+        assert sorted_cands[i]["final_score"] <= sorted_cands[i-1]["final_score"], "Score sorting failed"
+        
     return sorted_cands
 ```
 
@@ -1437,6 +1602,8 @@ def generate_reasoning(row: dict) -> str:
     # Primary sentence: evidence + 90-day milestone
     if best_snippet:
         if best_bucket in ("retrieval_search", "vector_db_hybrid"):
+            milestone = "Weeks 1-3 retrieval audit mandate"
+        elif best_bucket in ("ltr_reranking", "llm_integration"):
             milestone = "Weeks 4-8 hybrid ranker mandate"
         elif best_bucket == "eval_framework":
             milestone = "Weeks 9-12 evaluation framework mandate"
@@ -1555,7 +1722,7 @@ Sample 10 rows from across ranks (not just top). Check:
 - [ ] All `candidate_id`s match `^CAND_[0-9]{7}$` and exist in `candidates.jsonl`
 
 **Quality:**
-- [ ] `validate_submission.py` passes on the exact file to be uploaded
+- [ ] Verify score is non-increasing from rank 1 to rank 100 and no duplicate IDs exist
 - [ ] Honeypot rate in top 100 < 10% (spec §7: auto-disqualified at Stage 3 if exceeded)
 - [ ] Top-20 manual review passed
 - [ ] Obvious-fit candidates verified in top 10 (NDCG@10 = 50% of score)
@@ -1581,6 +1748,13 @@ Sample 10 rows from across ranks (not just top). Check:
 - [ ] Compute environment summary (one line: e.g. `Windows 11, Intel i7, 16GB RAM, Python 3.11`)
 - [ ] Team member list (name + email for each member)
 - [ ] Methodology summary (≤200 words — strongly recommended for Stage 4)
+
+### 11.6 Dynamic Weight Tuning & Config Injection (weights.yaml)
+
+To prevent code modification during final validation and parameter tuning, the implementation uses **Option A (Dynamic Configuration Injection)**:
+- **Conceptual Simplicity in Plan:** The python code snippets within this `plan.md` specify hardcoded default numerical values (e.g., `0.55 * must_have_score` or `multiplier *= 0.80`) to remain clean, self-contained, and highly readable.
+- **Dynamic Override in Execution:** In the actual codebase, all scoring weights, multipliers, boosts, and thresholds are loaded dynamically from `weights.yaml` (defined in detail at the bottom of [variables.md](file:///d:/GitHub/evidence-rank/variables.md)) into a central runtime configuration dictionary.
+- **No-Code Iteration:** During manual review and validation (Phases 7.1–7.4), tuning parameter thresholds or weight distributions only requires editing `weights.yaml` and re-running the scripts. No Python files need to be opened or modified.
 
 ---
 
@@ -1725,6 +1899,21 @@ To ensure rapid debugging and timing verification on the evaluation machine, `ra
 - **Peak Memory Usage:** Process peak RSS memory footprint.
 
 The offline precompute (`preprocess.py`) has no time constraint and may use any compute needed.
+
+---
+
+### 15.2 Run Metadata Schema
+
+`artifacts/run_metadata.json` is a simple dictionary generated by `preprocess.py`:
+
+```json
+{
+  "reference_date": "2026-06-05",
+  "total_candidates_processed": 100000,
+  "faiss_index_size": 100000
+}
+```
+`rank.py` uses `reference_date` to compute days inactive.
 
 ---
 
