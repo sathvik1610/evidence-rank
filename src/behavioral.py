@@ -102,10 +102,15 @@ def seniority_modifier(cand: dict) -> float:
 def soft_penalties(cand: dict) -> float:
     multiplier = 1.0
 
-    # Contradictions missing from feature schema extraction, defaulting to 0 for now.
-    # The flags were stored in the parquet but omitted from feature flat dict. We can assume 1.0 here 
-    # since impossible/suspicious trigger separately.
-    multiplier *= 1.0
+    # consistency_score: drops 0.15 per contradiction, floored at 0.30.
+    # Data comes from contradiction_skill_duration + contradiction_assessment
+    # fields now correctly forwarded into the flat dict (BUG 1+2 fix).
+    contradictions = (
+        cand.get("contradiction_skill_duration", 0) +
+        cand.get("contradiction_assessment", 0)
+    )
+    consistency_score = max(0.30, 1.0 - (0.15 * contradictions))
+    multiplier *= consistency_score
 
     if cand.get("title_velocity_flag", False):
         multiplier *= 0.80

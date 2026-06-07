@@ -63,8 +63,16 @@ def main():
     if os.path.exists(constants.RUN_METADATA_JSON):
         with open(constants.RUN_METADATA_JSON, "r") as f:
             meta = json.load(f)
-            if "run_time" in meta:
-                ref_date = date.fromisoformat(meta["run_time"].split("T")[0])
+            # GAP 3 FIX: use reference_date (= max last_active_date from corpus)
+            # Fall back to run_time for backwards compatibility with old artifacts
+            date_str = meta.get("reference_date") or (
+                meta.get("run_time", "").split("T")[0] if meta.get("run_time") else None
+            )
+            if date_str:
+                try:
+                    ref_date = date.fromisoformat(date_str)
+                except ValueError:
+                    pass
 
     print("Running Phase 5 (Behavioral Modifiers)...")
     for cand in candidates:

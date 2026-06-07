@@ -24,6 +24,20 @@ from tqdm import tqdm
 import constants
 from src.features import extract_features, compute_product_ratio, _build_career_text
 
+def get_embedding_model():
+    import torch
+    from FlagEmbedding import BGEM3FlagModel
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    use_fp16 = (device == "cuda")
+    return BGEM3FlagModel(constants.BGE_M3_MODEL_ID, use_fp16=use_fp16, device=device)
+
+def get_cross_encoder():
+    import torch
+    from FlagEmbedding import FlagReranker
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    use_fp16 = (device == "cuda")
+    return FlagReranker(constants.BGE_RERANKER_MODEL_ID, use_fp16=use_fp16)
+
 # ---------------------------------------------------------------------------
 # Date and Text Helpers
 # ---------------------------------------------------------------------------
@@ -441,7 +455,24 @@ def run_phase_1f_honeypots(candidates):
         has_cv = any(t in desc_text or any(t in s for s in skills_lower) for t in cv_terms)
         has_nlp = any(t in desc_text or any(t in s for s in skills_lower) for t in nlp_terms)
         wrong_domain = has_cv and not has_nlp
-        
+
+        # BUG 2 FIX: Compute contradiction counts for consistency_score in behavioral.py
+        # contradiction_skill_duration: skills claimed longer than career timeline + 48mo buffer
+        total_career_months = sum(r.get("duration_months", 0) or 0 for r in career)
+        contradiction_skill_duration = sum(
+            1 for s in c.get("skills", [])
+            if (s.get("duration_months") or 0) > total_career_months + 48
+        )
+
+        # contradiction_assessment: expert skills where assessment score < 40
+        assessment_scores = c.get("redrob_signals", {}).get("skill_assessment_scores", {})
+        contradiction_assessment = sum(
+            1 for s in c.get("skills", [])
+            if s.get("proficiency") == "expert"
+            and s.get("name") in assessment_scores
+            and assessment_scores[s["name"]] < 40
+        )
+
         records.append({
             "candidate_id": cid,
             "impossible_flag": impossible,
@@ -451,12 +482,16 @@ def run_phase_1f_honeypots(candidates):
             "product_ratio": round(product_ratio, 4),
             "consulting_only": consulting_only,
             "research_only": research_only,
-            "wrong_domain": wrong_domain
+            "wrong_domain": wrong_domain,
+            "contradiction_skill_duration": contradiction_skill_duration,
+            "contradiction_assessment": contradiction_assessment,
         })
         
     df = pd.DataFrame(records)
     df.to_parquet(constants.CANDIDATE_FLAGS_PARQUET)
     print(f"Flags saved to {constants.CANDIDATE_FLAGS_PARQUET}")
+    # Return max_date so main() can persist it as reference_date
+    return max_date
 
 
 # ---------------------------------------------------------------------------
@@ -643,7 +678,7 @@ def main():
         print("\nSkipping Phase 0 and Phase 1 Embedding (--skip-embed)")
         
     # Phase 1f (Honeypot) - Runs always
-    run_phase_1f_honeypots(candidates)
+    reference_date = run_phase_1f_honeypots(candidates)
     
     if not args.skip_embed:
         # Phase 1d (RRF) - Requires embeddings
@@ -661,6 +696,7 @@ def main():
     os.makedirs(constants.ARTIFACTS_DIR, exist_ok=True)
     with open(constants.RUN_METADATA_JSON, "w") as f:
         json.dump({
+            "reference_date": reference_date.isoformat(),  # GAP 3 FIX: max(last_active_date)
             "run_time": datetime.utcnow().isoformat() + "Z",
             "candidate_count": len(candidates),
             "skip_embed": args.skip_embed

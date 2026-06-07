@@ -661,6 +661,23 @@ def extract_features(
         **{f"beh_{k}": v for k, v in behavioral.items()},
         # Evidence snippets (JSON-serialized for Phase 6 reason generation)
         "snippets_json": json.dumps(snippets, ensure_ascii=False),
+        # ---------------------------------------------------------------
+        # Phase 1f flags — MUST be forwarded explicitly into the flat dict
+        # so that behavioral.py soft_penalties() and compute_final_score()
+        # can read them. These fields exist in candidate_flags.parquet but
+        # are consumed internally above; without explicit forwarding here
+        # they silently default to False/0.0 at rank time.
+        # ---------------------------------------------------------------
+        "wrong_domain":    flags.get("wrong_domain", False),
+        "research_only":   flags.get("research_only", False),
+        "consulting_only": flags.get("consulting_only", False),
+        "impossible_flag": flags.get("impossible_flag", False),
+        "suspicious_flag": flags.get("suspicious_flag", False),
+        "honeypot_score":  flags.get("honeypot_score", 0.0),
+        "is_ghost":        flags.get("is_ghost", False),
+        # contradiction counts (computed in Phase 1f; 0 if not available)
+        "contradiction_skill_duration": flags.get("contradiction_skill_duration", 0),
+        "contradiction_assessment":     flags.get("contradiction_assessment", 0),
     }
 
     return features
