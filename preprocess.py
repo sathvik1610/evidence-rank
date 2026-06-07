@@ -21,8 +21,12 @@ import scipy.sparse
 import polars as pl
 from tqdm import tqdm
 
+import warnings
+warnings.filterwarnings("ignore")
+
 import constants
 from src.features import extract_features, compute_product_ratio, _build_career_text
+from src.weights import W
 
 def get_embedding_model():
     import torch
@@ -347,20 +351,20 @@ def _compute_honeypot_score(candidate: dict) -> float:
     # S-1
     current_roles = [r for r in career if r.get("is_current")]
     if len(current_roles) >= 2:
-        score += 0.40
+        score += W["honeypot.s1_multi_current_roles"]
         
     # S-2
     total_career_months = sum(r.get("duration_months", 0) or 0 for r in career)
     claimed_months = profile.get("years_of_experience", 0) * 12
     if abs(total_career_months - claimed_months) > 24:
-        score += 0.25
+        score += W["honeypot.s2_yoe_mismatch"]
         
     # S-3
     expert_violations = sum(
         1 for s in skills
         if s.get("proficiency") == "expert" and (s.get("duration_months") or 999) < 12
     )
-    score += min(0.30, expert_violations * 0.15)
+    score += min(0.30, expert_violations * W["honeypot.s3_expert_short_duration"])
     
     # S-4
     maxed = (
@@ -370,11 +374,11 @@ def _compute_honeypot_score(candidate: dict) -> float:
         signals.get("profile_completeness_score", 0) >= 99
     )
     if maxed:
-        score += 0.20
+        score += W["honeypot.s4_maxed_signals"]
         
     # S-5
     if signals.get("github_activity_score", -1) == 0 and profile.get("years_of_experience", 0) >= 8:
-        score += 0.15
+        score += W["honeypot.s5_github_zero_senior"]
         
     # S-6
     desc_lengths = [len(r.get("description", "")) for r in career if r.get("description")]
@@ -382,7 +386,7 @@ def _compute_honeypot_score(candidate: dict) -> float:
         mean_len = sum(desc_lengths) / len(desc_lengths)
         variance = sum((l - mean_len)**2 for l in desc_lengths) / len(desc_lengths)
         if variance < 100:
-            score += 0.10
+            score += W["honeypot.s6_uniform_descriptions"]
             
     return min(score, 1.0)
 
@@ -433,7 +437,7 @@ def run_phase_1f_honeypots(candidates):
         # Honeypot
         impossible = _check_impossible_flag(c)
         hp_score = _compute_honeypot_score(c)
-        suspicious = hp_score > constants.HONEYPOT_SUSPICIOUS_THRESHOLD
+        suspicious = hp_score > W["honeypot.suspicious_threshold"]
         
         # Disqualifiers
         career = c.get("career_history", [])

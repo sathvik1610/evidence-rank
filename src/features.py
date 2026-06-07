@@ -17,6 +17,8 @@ import re
 import json
 from typing import Dict, Any, List, Tuple
 
+from src.weights import W
+
 # ---------------------------------------------------------------------------
 # Evidence Pattern Sets
 # ---------------------------------------------------------------------------
@@ -226,8 +228,8 @@ def score_skill_bucket(
         for s in candidate.get("skills", []):
             if any(re.search(kw, s.get("name", ""), re.IGNORECASE) for kw in keywords):
                 asc = assessment_scores.get(s["name"])
-                if asc is not None and asc >= 70 and score >= 1:
-                    score = min(score + 0.5, 3.0)
+                if asc is not None and asc >= W["scoring.assessment_bonus_threshold"] and score >= 1:
+                    score = min(score + W["scoring.assessment_bonus_value"], 3.0)
                     break  # Apply bonus once per bucket
 
         scores[bucket_name] = score

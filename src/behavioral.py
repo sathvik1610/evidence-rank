@@ -2,19 +2,21 @@
 src/behavioral.py — Phase 5: Behavioral Re-ranking + Penalization
 
 Applies reachability modifiers, social proof boosts, and soft penalties.
-These are applied late in the pipeline (to the top 500 candidates) to avoid
-accidentally dropping strong passive candidates during early retrieval.
+All numeric thresholds and multipliers sourced from weights.yaml via W.
 
-Operates on the flat candidate dictionary (features + flags + ce_score).
+Applied late in the pipeline (top 500 candidates) to avoid dropping strong
+passive candidates during early retrieval.
 """
 
 from datetime import date
+from src.weights import W
 
 PUNE_NOIDA_CITIES = {"pune", "noida", "greater noida", "delhi", "new delhi",
                       "gurugram", "gurgaon", "faridabad", "ghaziabad"}
 JD_WELCOME_CITIES = {"hyderabad", "mumbai"}
-INDIA_ADJACENT = {"bangalore", "bengaluru", "chennai", "kolkata",
-                   "ahmedabad", "indore", "jaipur", "chandigarh", "kochi"}
+INDIA_ADJACENT    = {"bangalore", "bengaluru", "chennai", "kolkata",
+                     "ahmedabad", "indore", "jaipur", "chandigarh", "kochi"}
+
 
 def reachability_multiplier(cand: dict, reference_date: date) -> float:
     mult = 1.0
@@ -23,171 +25,179 @@ def reachability_multiplier(cand: dict, reference_date: date) -> float:
     if last_active_str:
         try:
             days_inactive = (reference_date - date.fromisoformat(last_active_str)).days
-            if days_inactive > 540:
-                mult *= 0.60
-            elif days_inactive > 270:
-                mult *= 0.75
+            if days_inactive > W["behavioral.inactive_heavy_days"]:
+                mult *= W["behavioral.inactive_heavy_mult"]
+            elif days_inactive > W["behavioral.inactive_moderate_days"]:
+                mult *= W["behavioral.inactive_moderate_mult"]
         except ValueError:
             pass
 
     if not cand.get("beh_open_to_work", True):
-        mult *= 0.85
+        mult *= W["behavioral.not_open_mult"]
 
-    if cand.get("beh_recruiter_response_rate", 1.0) < 0.10:
-        mult *= 0.90
+    if cand.get("beh_recruiter_response_rate", 1.0) < W["behavioral.low_response_rate_threshold"]:
+        mult *= W["behavioral.low_response_mult"]
 
     return mult
+
 
 def notice_modifier(days) -> float:
     if days is None:
         return 1.00
-    if days <= 30:
-        return 1.00
-    elif days <= 60:
-        return 0.95
-    elif days <= 90:
-        return 0.90
+    if days <= W["behavioral.notice_ideal_days"]:
+        return W["behavioral.notice_ideal_mult"]
+    elif days <= W["behavioral.notice_mild_days"]:
+        return W["behavioral.notice_mild_mult"]
+    elif days <= W["behavioral.notice_moderate_days"]:
+        return W["behavioral.notice_moderate_mult"]
     else:
-        return 0.75
+        return W["behavioral.notice_bad_mult"]
+
 
 def location_modifier(cand: dict) -> float:
     location = cand.get("beh_location", "").lower()
-    country = cand.get("beh_country", "").lower()
-    willing = cand.get("beh_willing_to_relocate", False)
+    country  = cand.get("beh_country", "").lower()
+    willing  = cand.get("beh_willing_to_relocate", False)
 
     if any(city in location for city in PUNE_NOIDA_CITIES):
-        return 1.0
+        return W["behavioral.location_pune_noida_mult"]
     if any(city in location for city in JD_WELCOME_CITIES):
-        return 1.00 if willing else 0.98
+        return W["behavioral.location_welcome_cities_mult"] if willing else W["behavioral.location_welcome_no_reloc"]
     if any(city in location for city in INDIA_ADJACENT):
-        return 0.98 if willing else 0.95
+        return W["behavioral.location_india_adjacent_mult"] if willing else W["behavioral.location_india_adjacent_no_reloc"]
     if country == "india" and willing:
-        return 0.95
+        return W["behavioral.location_india_willing_mult"]
     if country == "india":
-        return 0.92
+        return W["behavioral.location_india_no_reloc_mult"]
     if willing:
-        return 0.90
-    return 0.85
+        return W["behavioral.location_abroad_willing_mult"]
+    return W["behavioral.location_abroad_no_reloc_mult"]
+
 
 def social_proof_boost(cand: dict) -> float:
     boost = 0.0
 
-    if cand.get("beh_github_activity_score", -1) > 60:
-        boost += 3.0
-    if cand.get("beh_saved_by_recruiters_30d", -1) > 5:
-        boost += 4.0
-    # profile_views_received_30d not tracked in feature schema; fallback to other signals
-
-    if cand.get("beh_endorsements_received", -1) > 20:
-        boost += 1.0
-    if cand.get("beh_interview_completion_rate", 0) > 0.80:
-        boost += 2.0
-    if cand.get("beh_offer_acceptance_rate", -1) > 0.70:
-        boost += 1.0
-
-    if cand.get("beh_profile_completeness_score", 0) > 80:
-        boost += 1.0
+    if cand.get("beh_github_activity_score", -1) > W["social_proof.github_threshold"]:
+        boost += W["social_proof.github_boost"]
+    if cand.get("beh_saved_by_recruiters_30d", -1) > W["social_proof.saved_threshold"]:
+        boost += W["social_proof.saved_boost"]
+    if cand.get("beh_endorsements_received", -1) > W["social_proof.endorsements_threshold"]:
+        boost += W["social_proof.endorsements_boost"]
+    if cand.get("beh_interview_completion_rate", 0) > W["social_proof.interview_completion_threshold"]:
+        boost += W["social_proof.interview_completion_boost"]
+    if cand.get("beh_offer_acceptance_rate", -1) > W["social_proof.offer_accept_threshold"]:
+        boost += W["social_proof.offer_accept_boost"]
+    if cand.get("beh_profile_completeness_score", 0) > W["social_proof.profile_completeness_threshold"]:
+        boost += W["social_proof.profile_completeness_boost"]
     if cand.get("beh_linkedin_connected", False):
-        boost += 1.0
+        boost += W["social_proof.linkedin_connected_boost"]
 
     avg_rt = cand.get("beh_avg_response_time_hours", 24.0)
-    if avg_rt <= 4.0 and cand.get("beh_recruiter_response_rate", 0) >= 0.60:
-        boost += 1.0
+    if avg_rt <= W["social_proof.fast_response_threshold"] and \
+       cand.get("beh_recruiter_response_rate", 0) >= W["social_proof.fast_response_rate_min"]:
+        boost += W["social_proof.fast_response_boost"]
 
-    return min(boost, 12.0)
+    return min(boost, W["social_proof.social_proof_max"])
+
 
 def seniority_modifier(cand: dict) -> float:
     return cand.get("seniority_score", 1.0)
 
+
 def soft_penalties(cand: dict) -> float:
     multiplier = 1.0
 
-    # consistency_score: drops 0.15 per contradiction, floored at 0.30.
-    # Data comes from contradiction_skill_duration + contradiction_assessment
-    # fields now correctly forwarded into the flat dict (BUG 1+2 fix).
+    # Consistency score: drops per contradiction, floored at minimum
     contradictions = (
         cand.get("contradiction_skill_duration", 0) +
         cand.get("contradiction_assessment", 0)
     )
-    consistency_score = max(0.30, 1.0 - (0.15 * contradictions))
+    drop = W["soft_penalties.consistency_drop_per_contradiction"]
+    floor_ = W["soft_penalties.consistency_floor"]
+    consistency_score = max(floor_, 1.0 - (drop * contradictions))
     multiplier *= consistency_score
 
     if cand.get("title_velocity_flag", False):
-        multiplier *= 0.80
+        multiplier *= W["soft_penalties.title_velocity_mult"]
 
     if cand.get("code_stopped", False):
-        multiplier *= 0.75
+        multiplier *= W["soft_penalties.code_stopped_mult"]
 
     if cand.get("langchain_only_flag", False):
-        multiplier *= 0.45
+        multiplier *= W["soft_penalties.langchain_only_mult"]
 
     pref_mode = cand.get("beh_preferred_work_mode", "").lower().strip()
     if pref_mode in ("remote", "wfh", "work from home"):
-        multiplier *= 0.85
+        multiplier *= W["soft_penalties.remote_pref_mult"]
 
     if cand.get("research_only", False):
-        multiplier *= 0.40
+        multiplier *= W["soft_penalties.research_only_mult"]
 
     if cand.get("wrong_domain", False):
-        multiplier *= 0.50
+        multiplier *= W["soft_penalties.wrong_domain_mult"]
 
     if cand.get("closed_source_flag", False):
-        multiplier *= 0.80
+        multiplier *= W["soft_penalties.closed_source_mult"]
 
     return multiplier
+
 
 def compute_final_score(cand: dict, reference_date: date) -> float:
     phase4_score = cand.get("final_phase4_score", 0.0)
 
-    # Honeypot / Impossible
+    # Honeypot / Impossible kill switch
     if cand.get("impossible_flag", False) or cand.get("suspicious_flag", False):
-        return phase4_score * 0.01
+        return phase4_score * W["behavioral.honeypot_multiplier"]
 
     reachability_mult = reachability_multiplier(cand, reference_date)
-    penalty_mult = soft_penalties(cand)
+    penalty_mult      = soft_penalties(cand)
 
-    notice_mult = notice_modifier(cand.get("beh_notice_period_days"))
-    loc_mult = location_modifier(cand)
+    notice_mult    = notice_modifier(cand.get("beh_notice_period_days"))
+    loc_mult       = location_modifier(cand)
     seniority_mult = seniority_modifier(cand)
-    writing_mult = cand.get("writing_signal", 1.0)
+    writing_mult   = cand.get("writing_signal", 1.0)
 
     logistical_mult = notice_mult * loc_mult * seniority_mult * writing_mult
-    logistical_mult = max(logistical_mult, 0.75)
+    logistical_mult = max(logistical_mult, W["behavioral.logistical_floor"])
 
     combined_mult = reachability_mult * penalty_mult * logistical_mult
-    combined_mult = max(combined_mult, 0.25)
+    combined_mult = max(combined_mult, W["behavioral.combined_floor"])
 
+    # Soft honeypot score compound penalty (for non-flagged suspicious profiles)
     honeypot_score = cand.get("honeypot_score", 0.0)
-    honeypot_mult = 1.0 - (honeypot_score * 0.40)
+    honeypot_mult  = 1.0 - (honeypot_score * W["behavioral.honeypot_score_penalty_factor"])
     combined_mult *= honeypot_mult
 
+    # Additive bonuses
     ninety_day_alignment = cand.get("ninety_day_alignment", 0.0)
-    ninety_day_bonus = 8.0 * ninety_day_alignment
+    ninety_day_bonus     = W["behavioral.ninety_day_bonus_max"] * ninety_day_alignment
 
     social_boost = social_proof_boost(cand)
 
     final = (
-        phase4_score
-        * combined_mult
+        phase4_score * combined_mult
         + ninety_day_bonus
         + social_boost
     )
 
-    if penalty_mult < 0.20:
+    # Floor protection: if penalties are extreme, force to 0.0
+    if penalty_mult < W["behavioral.penalty_floor_zero"]:
         return 0.0
 
     final = min(final, 120.0)
     return round(float(final), 6)
 
-def assign_ranks(scored_candidates: list[dict]) -> list[dict]:
+
+def assign_ranks(scored_candidates: list) -> list:
     sorted_cands = sorted(
         scored_candidates,
         key=lambda c: (-c.get("final_score", 0.0), c.get("candidate_id", ""))
     )
     for rank, c in enumerate(sorted_cands, start=1):
         c["rank"] = rank
-        
+
     for i in range(1, len(sorted_cands)):
-        assert sorted_cands[i]["final_score"] <= sorted_cands[i-1]["final_score"], "Score sorting failed"
-        
+        assert sorted_cands[i]["final_score"] <= sorted_cands[i-1]["final_score"], \
+            "Score sorting failed"
+
     return sorted_cands
