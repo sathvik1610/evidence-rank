@@ -1,0 +1,823 @@
+metadata:
+  version: "10.0-final"
+  description: "Redrob Senior AI Engineer JD intent contract. Optimized for retrieval/ranking/search ownership, evaluation culture, product execution, and candidate hireability."
+  # CRITICAL ENGINE REQUIREMENT: ALL pattern matching must be case-insensitive.
+  # Skill names in the dataset use mixed casing: 'CI/CD', 'Fine-tuning LLMs', 'Embeddings',
+  # 'BM25', 'FAISS', 'Pinecone' etc. A case-sensitive match will silently miss most signals.
+  matching_mode: "case_insensitive_everywhere"
+  #
+  # PATTERN MATCH TYPES (used in extraction_rules.patterns):
+  #   phrase  (default) — the full string must appear as a substring in the field text.
+  #                       'hybrid search' matches 'I built a hybrid search system'.
+  #   token_any         — the text is tokenized (split on spaces, hyphens, slashes, underscores).
+  #                       Match fires if ANY token in the skill name equals this anchor.
+  #                       'fine-tuning' matches 'Fine-tuning LLMs', 'LLM Fine-tuning', 'Fine Tuning'.
+  #                       USE THIS for single-word or hyphenated anchors that appear in multi-word skill names.
+  #   token_all         — same as token_any but ALL listed anchor tokens must be present.
+  #                       Use for disambiguation: requires both 'retrieval' AND 'augmented' to match RAG.
+  context_weights:
+    "career_history[].description": 6
+    "career_history[].title": 4
+    "profile.current_title": 4
+    "skills[].name": 1
+
+# ---------------------------------------------------------
+# 1. EVIDENCE EXTRACTION RULES
+# ---------------------------------------------------------
+extraction_rules:
+
+  - id: "core_search_and_retrieval"
+    feature_bucket: "primary_fit"
+    # Skills field added: 'Vector Search', 'Embeddings', 'BM25', 'FAISS' appear as explicit
+    # skill names in the dataset. A candidate with thin career descriptions but strong skill
+    # signals would score 0 without this. Context weight for skills[].name is 1 (vs 6 for description).
+    target_fields:
+      - "career_history[].description"
+      - "career_history[].title"
+      - "skills[].name"
+    patterns:
+      - "bm25"
+      - "retrieval system"
+      - "information retrieval"
+      - "search relevance"
+      - "search quality"
+      - "dense retrieval"
+      - "sparse retrieval"
+      - "hybrid search"
+      - "semantic search"
+      - "vector search"
+      - "candidate retrieval"
+      - "query understanding"
+      - "retrieval pipeline"
+      - "ranking pipeline"
+      - "sentence-transformers"
+      - "faiss"
+      - "pinecone"
+      - "weaviate"
+      - "milvus"
+      - "qdrant"
+      - "elasticsearch"
+      - "opensearch"
+      - "lucene"
+      - "solr"
+      - "hnsw"
+      - "bge"
+      - "openai embeddings"
+      - "voyage"
+      - "embeddings"
+
+  - id: "semantic_recsys_and_ranking"
+    feature_bucket: "primary_fit"
+    target_fields:
+      - "career_history[].description"
+      - "career_history[].title"
+      - "skills[].name"
+    patterns:
+      - "recommendation engine"
+      - "recommendation platform"
+      - "recommender system"
+      - "recommendation system"
+      - "recommendation systems"
+      - "collaborative filtering"
+      - "matrix factorization"
+      - "candidate matching"
+      - "candidate ranking"
+      - "talent matching"
+      - "marketplace ranking"
+      - "feed ranking"
+      - "ads ranking"
+      - "personalization"
+      - "ranking model"
+      - "learning to rank"
+      - "lambdamart"
+      - "cross encoder"
+      - "reranking"
+      - "re-ranking"
+
+  - id: "evaluation_culture"
+    feature_bucket: "primary_fit"
+    target_fields:
+      - "career_history[].description"
+    patterns:
+      - "ndcg"
+      - "mean reciprocal rank"
+      # NOTE: "mrr" alone matches "Monthly Recurring Revenue" - use full phrase
+      - "mean average precision"
+      # NOTE: "map" alone is too broad ("map function", "roadmap", etc.) - use full phrase
+      - "precision at k"
+      # NOTE: "a/b testing" alone is too broad — fires on marketing, growth, email campaigns.
+      # Only use ranking/search-specific phrases. Engine must require co-occurrence with
+      # core_search_and_retrieval > 0 OR semantic_recsys_and_ranking > 0 for a/b variants.
+      - "ranking a/b test"
+      - "search a/b test"
+      - "retrieval experiment"
+      - "ranking experiment"
+      - "a/b testing framework"
+      - "experimentation platform"
+      - "online experiments"
+      - "offline benchmarks"
+      - "offline evaluation"
+      - "relevance labeling"
+      - "human evaluation"
+      - "golden dataset"
+      - "ranking benchmark"
+      - "offline-to-online correlation"
+      - "precision@k"
+      - "recall@k"
+
+  - id: "metric_ownership"
+    feature_bucket: "product_builder"
+    target_fields:
+      - "career_history[].description"
+    patterns:
+      - "ctr"
+      - "conversion"
+      - "engagement"
+      - "retention"
+      - "business metrics"
+      - "lift"
+      - "experiment impact"
+      - "kpi"
+      - "growth metric"
+
+  - id: "operational_pain_and_scale"
+    feature_bucket: "product_builder"
+    target_fields:
+      - "career_history[].description"
+    patterns:
+      - "schema drift"
+      - "model drift"
+      - "embedding drift"
+      - "retrieval regression"
+      - "latency regression"
+      - "index refresh"
+      - "incident response"
+      - "on call"
+      - "production traffic"
+      - "serving"
+      - "millions of users"
+      - "large scale"
+      - "p99 latency"
+      - "high traffic"
+
+  - id: "ownership_action_verbs"
+    feature_bucket: "product_builder"
+    # NOTE: These patterns are only scored when co-occurring with search/ranking features.
+    # In isolation they are too generic (any engineer builds things). Engine must apply
+    # this bucket as a secondary signal, not a standalone score.
+    target_fields:
+      - "career_history[].description"
+    patterns:
+      - "owned end-to-end"
+      - "built from scratch"
+      - "led the development"
+      - "drove adoption"
+      - "sole owner"
+      - "founding engineer"
+      - "shipped to production"
+      - "zero to one"
+      - "v1 of"
+
+  - id: "hands_on_engineering_python"
+    feature_bucket: "must_have"
+    # NARROWED: JD says 'Strong Python. Yes really, we care about code quality.'
+    # Removed Docker, CI/CD, GitHub Actions — those are DevOps signals, not Python coding signals.
+    # A DevOps engineer or CV researcher using Docker/CI-CD would incorrectly score on this bucket.
+    # Docker/CI-CD can be tracked separately as infrastructure signals with lower weight.
+    target_fields:
+      - "career_history[].description"
+      - "skills[].name"
+    patterns:
+      - "python"
+      - "pytorch"
+      - "scikit-learn"
+      - "numpy"
+      - "fastapi"
+      - "flask"
+      - "pydantic"
+      - "pytest"
+      - "hugging face"
+      - "huggingface"
+      - "transformers"
+      - "weights and biases"
+      - "weights & biases"
+
+  - id: "devops_infrastructure"
+    feature_bucket: "nice_to_have"
+    # Separated from Python coding. Infrastructure signals indicate production discipline
+    # but should not gate a Python-focused must_have bucket.
+    target_fields:
+      - "career_history[].description"
+      - "skills[].name"
+    patterns:
+      - "ci/cd"
+      - "github actions"
+      - "docker"
+      - "kubernetes"
+      - "terraform"
+      - "mlops"
+      - "model monitoring"
+
+  - id: "founding_startup_ambiguity"
+    feature_bucket: "nice_to_have"
+    target_fields:
+      - "career_history[].description"
+    patterns:
+      - "0 to 1"
+      - "greenfield"
+      - "first engineer"
+      - "first ml engineer"
+      - "built v1"
+      - "startup"
+      - "seed stage"
+      - "series a"
+
+  - id: "domain_exposure_hr_marketplace"
+    feature_bucket: "nice_to_have"
+    target_fields:
+      - "career_history[].description"
+      - "career_history[].industry"
+    patterns:
+      - "hr tech"
+      - "recruiting"
+      - "talent acquisition"
+      - "applicant tracking"
+      - "job search"
+      - "job marketplace"
+      - "gig marketplace"
+      - "staffing"
+      - "talent platform"
+
+  - id: "llm_fine_tuning"
+    feature_bucket: "nice_to_have"
+    # LEXICAL VARIATION PROBLEM: The dataset has 'Fine-tuning LLMs', 'LLM Fine-tuning', 'LoRA', 'QLoRA'
+    # as distinct skill name strings. Phrase matching fails when word order or plurality differs.
+    # SOLUTION: Use token_any match_type on skills[].name — tokenizes the skill name and checks
+    # if any anchor token is present. 'fine-tuning' fires on all variants.
+    # Description field still uses default phrase matching (full phrases are reliable there).
+    target_fields:
+      - field: "career_history[].description"
+        match_type: phrase
+      - field: "skills[].name"
+        match_type: token_any  # 'fine-tuning' matches 'Fine-tuning LLMs', 'LLM Fine-tuning' etc.
+    patterns:
+      # NOTE on 'lora': token_any on skills[].name could match 'Lora' as a name in edge cases.
+      # Guard: only count lora match if the full skill name also contains 'llm', 'fine-tuning',
+      # 'peft', or 'qlora'. Engine must apply this co-occurrence check for lora token specifically.
+      - "lora"          # token_any + co-occurrence guard: matches 'LoRA', 'QLoRA fine-tuning with LoRA'
+      - "qlora"         # token_any: matches 'QLoRA'
+      - "peft"          # token_any: matches 'PEFT', 'PEFT fine-tuning'
+      - "fine-tuning"   # token_any: matches 'Fine-tuning LLMs', 'LLM Fine-tuning', 'Fine Tuning'
+      - "finetuning"    # token_any: covers the no-hyphen spelling
+      - "rlhf"
+      - "dpo"
+      - "sft"
+      - "instruction tuning"
+      - "llm fine-tuning"  # phrase fallback for descriptions
+
+  - id: "distributed_systems_and_inference"
+    feature_bucket: "nice_to_have"
+    target_fields:
+      - "career_history[].description"
+      - "skills[].name"
+    patterns:
+      - "distributed systems"
+      - "inference optimization"
+      - "tensorrt"
+      - "vllm"
+      - "triton"
+      - "model serving"
+      - "latency optimization"
+      - "high throughput"
+
+# ---------------------------------------------------------
+# 1.6 CONCEPT INFERENCE RULES
+# Solves the semantic equivalence problem: a candidate doing X may not use the word X.
+# These rules fire when component signals co-occur, inferring the higher-level concept.
+# Engine runs these AFTER extraction_rules, using their output as inputs.
+# Produces additional extracted_features.* flags (boolean: 0 or 1).
+# ---------------------------------------------------------
+concept_inference:
+
+  - id: "inferred_rag_practitioner"
+    produces: "extracted_features.inferred_rag_practitioner"
+    description: |
+      Candidate is likely building RAG systems without using the term 'RAG'.
+      RAG = retrieval component + vector/embedding store + LLM generation.
+      This fires when all three components are evidenced, even if 'RAG' never appears.
+    requires_all:
+      - extracted_features.core_search_and_retrieval > 0   # retrieval component
+      - extracted_features.hands_on_engineering_python > 0 # LLM tooling (hugging face, transformers etc.)
+    requires_any_one:
+      - field: "skills[].name OR career_history[].description"
+        contains_any: ["llm", "openai", "gpt", "claude", "gemini", "anthropic",
+                       "language model", "generation", "chatbot", "question answering"]
+    value_if_true: 1
+    value_if_false: 0
+    note: "Use this to rescue candidates who describe RAG work without the label."
+
+  - id: "inferred_production_ml"
+    produces: "extracted_features.inferred_production_ml"
+    description: |
+      Candidate has shipped ML to production without necessarily using ops jargon.
+      Signals: model endpoint + monitoring + real users. Not the same as 'studied ML'.
+    requires_all:
+      - extracted_features.hands_on_engineering_python > 0
+    requires_any_one:
+      - field: "career_history[].description"
+        contains_any: ["deployed", "production model", "model endpoint", "api endpoint",
+                       "real users", "live traffic", "model in production", "shipped",
+                       "inference service", "served", "online serving"]
+    value_if_true: 1
+    value_if_false: 0
+
+  - id: "inferred_eval_practitioner"
+    produces: "extracted_features.inferred_eval_practitioner"
+    description: |
+      Candidate runs rigorous evaluation without using metric names like NDCG.
+      Signals: comparing approaches, holdout sets, measuring quality, business impact correlation.
+    requires_any_one:
+      - field: "career_history[].description"
+        contains_any: ["holdout set", "test set", "baseline comparison", "measured improvement",
+                       "compared approaches", "quality metrics", "regression testing",
+                       "before and after", "ablation", "benchmark", "ground truth"]
+    value_if_true: 1
+    value_if_false: 0
+    note: "Supplements evaluation_culture. A good engineer may describe eval rigorously without naming NDCG."
+
+  - id: "inferred_keyword_stuffer"
+    produces: "extracted_features.inferred_keyword_stuffer"
+    description: |
+      Skills list has high AI keyword density but career descriptions have zero substance.
+      Classic trap in this dataset: marketing/ops titles with advanced AI skills listed.
+    formula: |
+      IF computed.ai_skill_count >= 5
+      AND extracted_features.core_search_and_retrieval == 0
+      AND extracted_features.operational_pain_and_scale == 0
+      AND extracted_features.metric_ownership == 0
+      AND profile.current_title does NOT match_any [engineer, developer, scientist, researcher]
+      THEN inferred_keyword_stuffer = 1
+    value_if_true: 1
+    value_if_false: 0
+    note: "Feed into multiplier: if inferred_keyword_stuffer == 1, apply penalty. Stricter than skill_inflation_check."
+
+# ---------------------------------------------------------
+# 1.5 COMPUTED FIELDS (Engine Pre-Processing)
+# Run these before hard_filters and multipliers.
+# All fields produced here are available as computed.* or extracted_* in subsequent rules.
+# ---------------------------------------------------------
+computed_fields:
+
+  - id: "computed.days_since_active"
+    description: "Days elapsed since the candidate was last active on the platform."
+    inputs:
+      - "redrob_signals.last_active_date"
+    formula: "(current_date - last_active_date).days"
+    type: integer
+    fallback: null  # If last_active_date is missing, skip rules that depend on this field.
+
+  - id: "computed.avg_tenure_months"
+    description: "Average tenure across all past (non-current) roles, in months."
+    inputs:
+      - "career_history[].duration_months"
+      - "career_history[].is_current"
+    formula: "mean(duration_months for roles where is_current == false)"
+    type: float
+    fallback: null  # If only one role total (current), skip job_hopper_risk rule.
+    notes: "Exclude the current role — its duration_months is still accumulating and not a reliable tenure signal."
+
+  - id: "computed.career_history_count"
+    description: "Total number of career history entries (current + past)."
+    inputs:
+      - "career_history"
+    formula: "len(career_history)"
+    type: integer
+    fallback: 0
+
+  - id: "computed.ai_skill_count"
+    description: "Count of skills in skills[].name that match a curated AI/ML keyword list."
+    inputs:
+      - "skills[].name"
+    formula: "count(skills where lowercase(name) matches any keyword in ai_keyword_list)"
+    type: integer
+    fallback: 0
+    ai_keyword_list:
+      - "pytorch"
+      - "tensorflow"
+      - "scikit-learn"
+      - "nlp"
+      - "llm"
+      - "langchain"
+      - "openai"
+      - "hugging face"
+      - "huggingface"
+      - "transformers"
+      - "diffusion"
+      - "rag"
+      - "vector database"
+      - "embeddings"
+      - "computer vision"
+      - "opencv"
+      - "cnn"
+      - "gans"
+      - "reinforcement learning"
+      - "xgboost"
+      - "bert"
+      - "gpt"
+      - "stable diffusion"
+      - "image classification"
+      - "object detection"
+      - "recommendation systems"
+      - "information retrieval"
+
+  - id: "extracted_product_company_ratio"
+    description: "Fraction of total career months spent at product companies (vs consulting/services)."
+    inputs:
+      - "career_history[].duration_months"
+      - "career_history[].industry"
+      - "career_history[].company_size"
+      - "career_history[].company"
+    formula: |
+      consulting_companies = ['TCS', 'Infosys', 'Wipro', 'Accenture', 'Cognizant',
+                              'Capgemini', 'HCL', 'Tech Mahindra', 'Mphasis', 'Hexaware']
+      consulting_months = sum(duration_months for roles where
+          company in consulting_companies OR
+          (industry == 'IT Services' AND company_size == '10001+'))
+      total_months = sum(duration_months for all roles)
+      ratio = (total_months - consulting_months) / total_months  [0.0 to 1.0]
+    type: float
+    fallback: 0.5  # If industry/company data is missing, assume mixed background (fail open).
+    notes: "Value of 0.0 means entire career is consulting/services. Triggers consulting_heavy_soft_penalty."
+
+# ---------------------------------------------------------
+# 2. HARD DISQUALIFIERS
+# ---------------------------------------------------------
+hard_filters:
+
+  - id: "ghost_profile"
+    # FIELD NOTE: Schema has 'last_active_date' (ISO date string), NOT 'last_active_days_ago'.
+    # Engine must compute: days_since_active = (today - last_active_date).days
+    # and use that computed value. Do NOT read 'last_active_days_ago' directly - it does not exist.
+    # All four conditions must be true. Dropping any one creates false ghosts:
+    # A candidate who is inactive but still submitting applications is passively searching, not dormant.
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.days_since_active"
+        operator: ">"
+        value: 365
+
+      - field: "redrob_signals.recruiter_response_rate"
+        operator: "<"
+        value: 0.05
+
+      - field: "redrob_signals.open_to_work_flag"
+        operator: "=="
+        value: false
+
+      - field: "redrob_signals.applications_submitted_30d"
+        operator: "=="
+        value: 0
+
+# ---------------------------------------------------------
+# 3. MULTIPLIERS
+# ---------------------------------------------------------
+multipliers:
+
+  - id: "co_occurrence_bonus_retrieval_and_eval"
+    # Fires only when retrieval+eval are present but ranking signal is absent.
+    # Superseded by trifecta_bonus when all three are evidenced.
+    # MUTUALLY EXCLUSIVE with trifecta_bonus — guard on semantic_recsys_and_ranking == 0
+    # prevents stacking. Trifecta (3 signals) ×1.15 always beats this (2 signals) ×1.05.
+    logic_operator: "AND"
+    conditions:
+      - field: "extracted_features.core_search_and_retrieval"
+        operator: ">"
+        value: 0
+      - field: "extracted_features.evaluation_culture"
+        operator: ">"
+        value: 0
+      - field: "extracted_features.semantic_recsys_and_ranking"
+        operator: "=="
+        value: 0  # Prevents stacking — trifecta takes over when this is > 0
+    multiplier_value: 1.05
+
+  - id: "trifecta_bonus_retrieval_ranking_eval"
+    # Best candidates show all three: retrieval depth + ranking sophistication + eval rigor.
+    # This is the profile the JD is explicitly looking for.
+    # HIGHER bonus than co_occurrence: 3-signal achievement should always outrank 2-signal.
+    # Mutually exclusive with co_occurrence_bonus (see above).
+    logic_operator: "AND"
+    conditions:
+      - field: "extracted_features.core_search_and_retrieval"
+        operator: ">"
+        value: 0
+      - field: "extracted_features.semantic_recsys_and_ranking"
+        operator: ">"
+        value: 0
+      - field: "extracted_features.evaluation_culture"
+        operator: ">"
+        value: 0
+    multiplier_value: 1.15
+
+  - id: "job_market_activity_bonus"
+    # FIELD NOTE: 'last_active_days_ago' does not exist in schema.
+    # Engine computes 'computed.days_since_active' from redrob_signals.last_active_date.
+    logic_operator: "AND"
+    conditions:
+      - field: "redrob_signals.open_to_work_flag"
+        operator: "=="
+        value: true
+
+      - field: "computed.days_since_active"
+        operator: "<="
+        value: 30
+
+      - field: "redrob_signals.applications_submitted_30d"
+        operator: ">"
+        value: 0
+    multiplier_value: 1.05
+
+  - id: "consulting_heavy_soft_penalty"
+    # IMPORTANT: 'extracted_product_company_ratio' is a COMPUTED field.
+    # The engine must compute this as: (months at product companies) / (total career months).
+    # Company types to classify as 'product': SaaS, marketplace, consumer tech, fintech, edtech.
+    # Company types to classify as 'consulting': TCS, Infosys, Wipro, Accenture, Cognizant,
+    # Capgemini, HCL, Tech Mahindra, and any company where industry == 'IT Services'
+    # with company_size > 10000 is a strong heuristic proxy.
+    # If this field cannot be computed, skip this multiplier (fail open, not closed).
+    # JD names 6 firms explicitly: TCS, Infosys, Wipro, Accenture, Cognizant, Capgemini.
+    # Fires only at product_ratio == 0.0 (entire career at consulting/services).
+    # JD escape clause: "If you're currently at one of these companies but have prior
+    # product-company experience, that's fine." So ratio > 0.0 does not trigger this rule.
+    logic_operator: "AND"
+    conditions:
+      - field: "extracted_product_company_ratio"
+        operator: "=="
+        value: 0.0
+    multiplier_value: 0.40
+
+  - id: "job_hopper_risk"
+    # COMPUTED FIELDS: Both fields below must be derived by the engine before this rule fires.
+    # 'computed.avg_tenure_months' = mean(career_history[].duration_months)
+    #   - Exclude current role from average (duration_months is still accumulating).
+    #   - If career_history has only 1 entry, skip this rule entirely (insufficient data).
+    # 'computed.career_history_count' = len(career_history)
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.avg_tenure_months"
+        operator: "<"
+        value: 18.0
+
+      - field: "computed.career_history_count"
+        operator: ">="
+        value: 3
+    multiplier_value: 0.85
+
+  - id: "code_stopped_architect"
+    logic_operator: "AND"
+    conditions:
+      - field: "profile.current_title"
+        operator: "matches_none_ignorecase"
+        value:
+          - "engineer"
+          - "developer"
+
+      - field: "profile.current_title"
+        operator: "matches_any_ignorecase"
+        value:
+          - "architect"
+          - "director"
+          - "vp"
+          - "head of"
+          - "engineering manager"
+          - "principal"
+          - "staff"
+
+      - field: "profile.years_of_experience"
+        operator: ">"
+        value: 8.0
+
+      - field: "extracted_features.hands_on_engineering_python"
+        operator: "=="
+        value: 0
+    multiplier_value: 0.75
+
+  - id: "langchain_tourist_trap"
+    logic_operator: "AND"
+    conditions:
+      - field: "skills[].name"
+        operator: "matches_any_ignorecase"
+        value:
+          - "langchain"
+          - "prompt engineering"
+          - "openai"
+          - "chatgpt"
+          - "rag"
+
+      - field: "extracted_features.core_search_and_retrieval"
+        operator: "=="
+        value: 0
+
+      - field: "extracted_features.semantic_recsys_and_ranking"
+        operator: "=="
+        value: 0
+    multiplier_value: 0.50
+
+  - id: "computer_vision_trap"
+    logic_operator: "AND"
+    conditions:
+      - field: "skills[].name"
+        operator: "matches_any_ignorecase"
+        value:
+          - "computer vision"
+          - "opencv"
+          - "cnn"
+          - "image classification"
+          - "object detection"
+          - "robotics"
+          - "speech recognition"
+      - field: "extracted_features.core_search_and_retrieval"
+        operator: "=="
+        value: 0
+      - field: "extracted_features.semantic_recsys_and_ranking"
+        operator: "=="
+        value: 0
+    multiplier_value: 0.60
+
+  - id: "pure_research_penalty"
+    # CALIBRATED: Raised from ×0.70 to ×0.20.
+    # The JD uses the strongest disqualifier language for this case:
+    # "We will not move forward. We are explicit about this. We've tried it twice."
+    # ×0.70 left pure-research candidates at 70% score — still reachable in top 100.
+    # ×0.20 makes them effectively unreachable unless all other signals are exceptional.
+    # Guard (core_search_and_retrieval == 0) prevents penalising research scientists
+    # who have shipped real retrieval systems — they pass through.
+    logic_operator: "AND"
+    conditions:
+      - field: "profile.current_title"
+        operator: "matches_any_ignorecase"
+        value:
+          - "research assistant"
+          - "phd researcher"
+          - "postdoctoral"
+          - "graduate research"
+          - "research scientist"
+          - "ml researcher"
+          - "research engineer"
+          - "scientist"
+      - field: "extracted_features.operational_pain_and_scale"
+        operator: "=="
+        value: 0
+      - field: "extracted_features.metric_ownership"
+        operator: "=="
+        value: 0
+      # Guard: if they have production retrieval experience, let them through.
+      - field: "extracted_features.core_search_and_retrieval"
+        operator: "=="
+        value: 0
+    multiplier_value: 0.20
+
+  - id: "closed_source_isolation"
+    # Only penalize when github score is explicitly 0 (present but empty).
+    # score == -1 means missing/not connected; do NOT penalize missing data.
+    # EXCEPTION: suppress penalty if career_history descriptions mention papers, arXiv,
+    # conferences (NeurIPS, ICML, ICLR, SIGIR, ACL, EMNLP, NAACL), talks, or publications.
+    # The JD lists 'papers, talks, open-source' as equivalent external validation.
+    # GitHub is only one of three listed alternatives — do not over-index on it.
+    logic_operator: "AND"
+    conditions:
+      - field: "profile.years_of_experience"
+        operator: ">"
+        value: 5.0
+      - field: "redrob_signals.github_activity_score"
+        operator: "=="
+        value: 0
+      # Exception: candidate has papers/talks/open-source in career history → skip penalty
+      - field: "career_history[].description"
+        operator: "matches_none_ignorecase"
+        value:
+          - "published"
+          - "arxiv"
+          - "conference"
+          - "neurips"
+          - "icml"
+          - "iclr"
+          - "sigir"
+          - "acl"
+          - "emnlp"
+          - "naacl"
+          - "talk"
+          - "keynote"
+          - "paper"
+          - "open source"
+          - "open-source"
+    multiplier_value: 0.90
+
+  - id: "skill_inflation_check"
+    # COMPUTED FIELD: 'computed.ai_skill_count' does not exist in schema.
+    # Engine must count skills[].name that match a predefined AI keyword list:
+    # ['pytorch', 'tensorflow', 'scikit-learn', 'nlp', 'llm', 'langchain', 'openai',
+    #  'hugging face', 'transformers', 'diffusion', 'rag', 'vector', 'embedding',
+    #  'computer vision', 'opencv', 'cnn', 'gans', 'reinforcement learning', 'xgboost',
+    #  'bert', 'gpt', 'stable diffusion', 'image classification', 'object detection']
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.ai_skill_count"
+        operator: ">"
+        value: 5
+
+      - field: "extracted_features.core_search_and_retrieval"
+        operator: "=="
+        value: 0
+
+      - field: "extracted_features.semantic_recsys_and_ranking"
+        operator: "=="
+        value: 0
+
+      - field: "extracted_features.evaluation_culture"
+        operator: "=="
+        value: 0
+    multiplier_value: 0.80
+
+  - id: "seniority_sweet_spot"
+    logic_operator: "EVAL_BAND"
+    bands:
+      - min: 5.0
+        max: 9.9
+        multiplier: 1.00
+
+      - min: 4.0
+        max: 4.9
+        multiplier: 0.95
+
+      - min: 10.0
+        max: 12.9
+        multiplier: 0.95
+
+      - min: 0.0
+        max: 3.9
+        multiplier: 0.75
+
+      - min: 13.0
+        max: 99.0
+        multiplier: 0.90
+
+  - id: "location_tier_multiplier"
+    logic_operator: "EVAL_LOCATION"
+    bands:
+      - condition: "profile.location matches_any ['Pune','Noida','Delhi NCR']"
+        multiplier: 1.00
+
+      - condition: "profile.location matches_any ['Hyderabad','Mumbai'] OR redrob_signals.willing_to_relocate == True"
+        multiplier: 0.98
+
+      - condition: "profile.country != 'India'"
+        multiplier: 0.90
+
+  - id: "notice_period_multiplier"
+    logic_operator: "EVAL_BAND"
+    bands:
+      - min: 0
+        max: 30
+        multiplier: 1.00
+
+      - min: 31
+        max: 60
+        multiplier: 0.95
+
+      - min: 61
+        max: 90
+        multiplier: 0.90
+
+      - min: 91
+        max: 999
+        multiplier: 0.75
+
+# ---------------------------------------------------------
+# 4. ADDITIVE TIE BREAKERS
+# ---------------------------------------------------------
+additive_tie_breakers:
+
+  - id: "open_source_validation"
+    logic_operator: "AND"
+    conditions:
+      - field: "redrob_signals.github_activity_score"
+        operator: ">"
+        value: 50
+    bonus_value: 0.03
+
+  - id: "profile_authenticity_score"
+    logic_operator: "AND"
+    conditions:
+      - field: "redrob_signals.verified_email"
+        operator: "=="
+        value: true
+
+      - field: "redrob_signals.linkedin_connected"
+        operator: "=="
+        value: true
+
+      - field: "redrob_signals.profile_completeness_score"
+        operator: ">"
+        value: 80.0
+    bonus_value: 0.02

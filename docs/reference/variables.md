@@ -23,14 +23,23 @@
 
 | Variable | Source Field | Condition | Effect |
 |----------|-------------|-----------|--------|
-| Skill duration vs career length | `skills[i].duration_months`, `profile.years_of_experience` | `skill_duration > (yoe × 12) + 6` | HARD zero |
 | Expert skill with zero use | `skills[i].proficiency`, `skills[i].duration_months` | proficiency in {expert, advanced} AND duration == 0 | HARD zero |
-| Expert skill with bad assessment | `skills[i].proficiency`, `redrob_signals.skill_assessment_scores` | proficiency in {expert, advanced} AND assessment_score < **40** | HARD zero |
 | Single role longer than career | `career_history[i].duration_months`, `profile.years_of_experience` | `role_duration > (yoe × 12) + 12` | HARD zero |
+| Career length impossible overlap | `career_history[i].duration_months`, `profile.years_of_experience` | sum(role_durations) > `(yoe * 12 * 1.5) + 12` | HARD zero |
 
 ---
 
-### 1B. Ghost Profile Filter
+### 1B. Consistency Signals (Extracted Phase 1, Penalized Phase 5)
+> Rather than hard eliminations, these signal a suspicious profile.
+
+| Variable | Source Field | Logic | Output |
+|----------|-------------|-----------|-------|
+| Skill duration vs career length | `skills[i].duration_months`, `profile.years_of_experience` | count where `skill_duration > (yoe × 12) + 6` | `contradiction_skill_duration` |
+| Expert skill with bad assessment | `skills[i].proficiency`, `redrob_signals.skill_assessment_scores` | count where proficiency in {expert, advanced} AND assessment_score < **40** | `contradiction_assessment` |
+
+---
+
+### 1C. Ghost Profile Filter
 > **ALL FOUR** conditions must be true simultaneously → `is_ghost = True` → **final_score = 0.0 (HARD)**
 
 | Variable | Source Field | Threshold | Logic |

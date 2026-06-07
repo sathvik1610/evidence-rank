@@ -13,6 +13,7 @@
 
 1. Problem Understanding & Design Philosophy
 2. System Architecture Overview
+2b. Execution Model
 3. Repository Layout
 4. Phase 0 — JD Intelligence
 5. Phase 1 — Corpus Preprocessing + Honeypot Detection
@@ -75,12 +76,13 @@ The 23 `redrob_signals` fields are not profile quality metrics. They are **avail
 
 The system executes in two strictly separated environments:
 
-**Offline Precompute (`preprocess.py`, no time limit, run once before submission):**
-- Phase 0: Parse and embed the JD, build BM25 keyword list, save query vectors
-- Phase 1: Embed all 100K profiles, build FAISS index, flag honeypots and disqualifiers, pre-filter ghost profiles
-- Phase 1b: Run cross-encoder on all retrieved candidates offline; save scores to `cross_encoder_scores.parquet`
+**Offline Precompute (`preprocess.py`, no time limit, run once before submission — GPU/CPU adaptive):**
+- Phase 0: Parse `JD_contract.yaml` → build 3 natural-language JD query strings → encode via BGE-M3 → save 3 dense `.npy` vectors + 1 learned-sparse `.npz` CSR matrix + BM25 keyword list. **ColBERT disabled entirely.**
+- Phase 1: Encode all 100K candidate profile texts via BGE-M3 (dense + learned-sparse only) → save dense matrix as FAISS `IndexFlatIP` + save sparse outputs as a single consolidated `candidate_sparse.npz` CSR matrix → flag honeypots and disqualifiers → pre-filter ghost profiles
+- Phase 1b: Build traditional `rank_bm25` lexical index on normalized candidate text fields
 - Phase 1c: Extract all candidate features offline; save to `candidate_features.parquet`
-- Phase 1d: Compute retrieval RRF scores offline; save to `retrieval_scores.parquet`
+- Phase 1d: Compute 5-way RRF retrieval scores offline; save top-5000 to `retrieval_scores.parquet`
+- Phase 1e: Run cross-encoder on top 500 candidates offline; save to `cross_encoder_scores.parquet`
 
 **Runtime Ranking Engine (`rank.py`, must complete in under 5 minutes on CPU, no network):**
 - Phase 2: Load precomputed retrieval scores → filter to top 3,000 candidates (configurable via weights.yaml) (< 5s)
@@ -108,11 +110,88 @@ Validation must be performed on the 150-200 manually-labeled candidates without 
 
 ---
 
+## Execution Model
+
+The system operates in two distinct stages:
+
+### Stage A: Offline Precomputation
+
+Executed once before ranking.
+
+Purpose:
+
+* Perform expensive computations that do not depend on a specific job description.
+
+Examples:
+
+* Candidate validation and filtering
+* Feature extraction
+* Behavioral signal extraction
+* Dense embedding generation
+* FAISS index construction
+* BM25 index construction
+* Candidate metadata generation
+
+Outputs:
+
+* candidate_flags.parquet
+* FAISS indices
+* BM25 indices
+* Candidate feature artifacts
+* Any other reusable ranking artifacts
+
+Notes:
+
+* May exceed 5 minutes.
+* May use different hardware during development.
+* Produces artifacts consumed by the ranking stage.
+
+---
+
+### Stage B: Ranking Execution
+
+This is the step evaluated under competition constraints.
+
+Inputs:
+
+* Job Description
+* Candidate dataset
+* Precomputed artifacts
+
+Process:
+
+1. Build JD representations
+2. Run retrieval (BM25 + Dense Retrieval)
+3. Apply RRF
+4. Score shortlisted candidates
+5. Apply behavioral adjustments
+6. Generate explanations
+7. Output submission.csv
+
+Constraints:
+
+* ≤ 5 minutes wall-clock
+* ≤ 16 GB RAM
+* CPU only
+* No external API calls
+
+---
+
+### Design Principle
+
+Any computation that does not require the current Job Description should be moved to Stage A whenever possible.
+
+Stage B should function as a lightweight ranking system operating primarily on precomputed features and indices.
+
+---
+
 ## 3. Repository Layout
 
 ```
 ├── rank.py                        # Runtime entry point
 ├── preprocess.py                  # Offline pipeline runner
+├── constants.py                   # Single source of truth for all artifact paths (see §3.1)
+├── test_sparse_pipeline.py        # Step 1 math validation (must pass before Phase 1 implementation)
 ├── weights.yaml                   # Dynamic weights, multipliers, boosts, and thresholds config file
 ├── requirements.txt
 ├── submission_metadata.yaml
@@ -120,7 +199,7 @@ Validation must be performed on the 150-200 manually-labeled candidates without 
 ├── app.py                         # HuggingFace Spaces Gradio sandbox
 ├── src/
 │   ├── __init__.py
-│   ├── retriever.py               # Phase 2: FAISS + BM25 + RRF
+│   ├── retriever.py               # Phase 2: 5-way RRF (FAISS + CSR dot-product + BM25)
 │   ├── features.py                # Phase 3: Bucket A/B/C extraction
 │   ├── scorer.py                  # Phase 4: Weighted scoring formula
 │   ├── reranker.py                # Phase 4: Cross-encoder reranking
@@ -129,31 +208,38 @@ Validation must be performed on the 150-200 manually-labeled candidates without 
 ├── metadata/
 │   └── validation_set.json        # Hand-labeled validation set (150-200 candidates)
 └── artifacts/
-    ├── jd_skills_vector.npy        # Phase 0: Skills-focused JD embedding
-    ├── jd_ideal_vector.npy         # Phase 0: Synthetic ideal candidate embedding
-    ├── jd_keywords.json            # Phase 0: BM25 keyword list
-    ├── jd_config.json              # Phase 0: Structured JD rule set
-    ├── faiss_index.bin             # Phase 1: FAISS IndexFlatIP
-    ├── candidate_ids.json          # Phase 1: Ordered candidate ID list (matches FAISS index)
-    ├── candidate_texts.pkl         # Phase 1: Serialized candidate texts for BM25
-    ├── bm25_index.pkl              # Phase 1: Serialized BM25 index
-    ├── candidate_flags.parquet     # Phase 1: Lightweight flags: is_honeypot, is_ghost, disqualifier tags
-    ├── retrieval_scores.parquet    # Phase 1d: Precomputed RRF scores for all retrieved candidates
-    ├── candidate_features.parquet  # Phase 1c: Precomputed Bucket A/B/C features for all retrieved candidates
-    └── cross_encoder_scores.parquet # Phase 1b: Precomputed bge-reranker-v2-m3 scores for top 500 candidates
+    ├── jd_v1_skills.npy             # Phase 0: Dense query — v1_skills (programmatically built from YAML)
+    ├── jd_hyde_recsys.npy           # Phase 0: Dense query — HyDE RecSys Persona
+    ├── jd_hyde_eval.npy             # Phase 0: Dense query — HyDE Eval/Metrics Persona
+    ├── jd_sparse_queries.npz        # Phase 0: Learned-sparse CSR query matrix (BGE-M3, 3 × vocab_size)
+    ├── jd_keywords.json             # Phase 0: BM25 keyword list
+    ├── jd_config.json               # Phase 0: Structured JD rule set
+    ├── faiss_index.bin              # Phase 1: FAISS IndexFlatIP (dense candidate embeddings)
+    ├── candidate_ids.json           # Phase 1: Ordered candidate ID list (matches FAISS row index)
+    ├── candidate_sparse_matrix.npz  # Phase 1: Consolidated learned-sparse CSR matrix (100K × vocab_size)
+    ├── candidate_texts.pkl          # Phase 1: Serialized normalized candidate texts for BM25
+    ├── bm25_index.pkl               # Phase 1: Serialized rank_bm25 index
+    ├── candidate_flags.parquet      # Phase 1: Lightweight flags: is_honeypot, is_ghost, disqualifier tags
+    ├── retrieval_scores.parquet     # Phase 1d: Precomputed 5-way RRF scores (top 5000 candidates)
+    ├── candidate_features.parquet   # Phase 1c: Precomputed Bucket A/B/C features for retrieved candidates
+    └── cross_encoder_scores.parquet # Phase 1e: Precomputed bge-reranker-v2-m3 scores for top 500 candidates
 ```
 
 **What each key file does:**
 
 `rank.py` — Competition entry point. Takes `--candidates` and `--out` as CLI arguments. Loads all precomputed artifacts from `artifacts/`, runs Phases 2–6 as pure in-memory operations, writes the output CSV. Must complete in under 5 minutes. **Does not import `flagembedding`, `sentence-transformers`, `faiss`, or `torch` at import time.**
 
-`preprocess.py` — Offline pipeline runner. JD intelligence, corpus embedding, FAISS index building, honeypot flagging, ghost pre-filtering, cross-encoder inference, feature extraction, retrieval scoring. No time constraint. May take 1–4 hours on CPU.
+`preprocess.py` — Offline pipeline runner. Phase 0 JD intelligence, Phase 1 corpus embedding + sparse CSR matrix build, FAISS index, BM25 index, honeypot flagging, ghost pre-filtering, 5-way RRF retrieval scoring, feature extraction, cross-encoder inference. No time constraint. GPU-adaptive for embedding steps.
+
+`constants.py` — Single source of truth for every artifact path string. Both `preprocess.py` and `rank.py` (and all modules under `src/`) import paths exclusively from here. Renaming any artifact requires one edit in one file. See §3.1.
+
+`test_sparse_pipeline.py` — Step 1 validation script. Runs a 9-step end-to-end proof of the sparse storage and dot-product math on 1,000 mock candidates before any other pipeline code is written. **Must pass before starting Phase 1 implementation.**
 
 `weights.yaml` — Dynamic configuration file containing all scoring weights, multipliers, boosts, and thresholds. Loaded at startup by both pipelines to avoid hardcoded parameter logic.
 
 `app.py` — HuggingFace Spaces demo sandbox. Heuristic BM25-only path; no transformer model loads. Accepts small JSON payloads for interactive demonstration.
 
-`src/retriever.py` — At preprocess time: FAISS dense search + BM25 sparse search + RRF fusion → saves `retrieval_scores.parquet`. At rank time: loads parquet, filters to top N.
+`src/retriever.py` — At preprocess time: 5-way RRF (3 dense FAISS searches + 1 learned-sparse CSR dot-product + 1 BM25) → saves `retrieval_scores.parquet`. At rank time: loads parquet, filters to top N.
 
 `src/features.py` — At preprocess time: regex-based Bucket A/B/C extraction on all retrieved candidates → saves `candidate_features.parquet`. At rank time: loads parquet.
 
@@ -167,11 +253,81 @@ Validation must be performed on the 150-200 manually-labeled candidates without 
 
 ---
 
+### 3.1 Design Rule: Single Source of Truth for Artifact Paths
+
+**Problem this solves:** The offline precompute script saves an artifact to one filename; the runtime loader looks for a slightly different filename. The mismatch is silent — `FileNotFoundError` only surfaces at evaluation time. With 25+ days of development across multiple files, this class of bug will happen without a structural guard.
+
+**Rule:** Every artifact path string is defined **once** in `constants.py`. Both `preprocess.py` and every module under `src/` import their paths from `constants.py`. No path string is ever written inline in a script.
+
+The canonical constant definitions (do not duplicate these elsewhere in the codebase):
+
+```python
+# constants.py — single source of truth for all artifact paths
+# Both preprocess.py (write side) and rank.py / src/* (read side) import from here.
+# To rename an artifact: change it in exactly one place.
+
+# --- Phase 0: JD query artifacts ---
+JD_DENSE_PATHS = {
+    "v1_skills":   "artifacts/jd_v1_skills.npy",
+    "hyde_recsys": "artifacts/jd_hyde_recsys.npy",
+    "hyde_eval":   "artifacts/jd_hyde_eval.npy",
+}
+JD_SPARSE_PATH  = "artifacts/jd_sparse_queries.npz"  # 3 × vocab_size CSR matrix
+JD_KEYWORDS_PATH = "artifacts/jd_keywords.json"
+JD_CONFIG_PATH   = "artifacts/jd_config.json"
+
+# --- Phase 1: Candidate corpus artifacts ---
+FAISS_INDEX_PATH       = "artifacts/faiss_index.bin"
+CANDIDATE_IDS_PATH     = "artifacts/candidate_ids.json"
+CANDIDATE_SPARSE_PATH  = "artifacts/candidate_sparse_matrix.npz"  # 100K × vocab_size CSR
+BM25_INDEX_PATH        = "artifacts/bm25_index.pkl"
+BM25_TEXTS_PATH        = "artifacts/candidate_texts.pkl"
+CANDIDATE_FLAGS_PATH   = "artifacts/candidate_flags.parquet"
+
+# --- Phase 1c / 1d / 1e: Precomputed scoring artifacts ---
+RETRIEVAL_SCORES_PATH      = "artifacts/retrieval_scores.parquet"
+CANDIDATE_FEATURES_PATH    = "artifacts/candidate_features.parquet"
+CROSS_ENCODER_SCORES_PATH  = "artifacts/cross_encoder_scores.parquet"
+```
+
+**Usage pattern** — every write and every read goes through the constant:
+
+```python
+# preprocess.py (write side)
+from constants import CANDIDATE_SPARSE_PATH, JD_SPARSE_PATH
+scipy.sparse.save_npz(CANDIDATE_SPARSE_PATH, candidate_csr)
+scipy.sparse.save_npz(JD_SPARSE_PATH, query_csr)
+
+# src/retriever.py (read side)
+from constants import CANDIDATE_SPARSE_PATH, JD_SPARSE_PATH, FAISS_INDEX_PATH
+candidate_csr = scipy.sparse.load_npz(CANDIDATE_SPARSE_PATH)
+jd_sparse     = scipy.sparse.load_npz(JD_SPARSE_PATH)
+index         = faiss.read_index(FAISS_INDEX_PATH)
+```
+
+**Enforcement:** When writing any new file I/O call, check `constants.py` first. If the path isn't there yet, add it to `constants.py` before referencing it anywhere else. Never use a string literal for an artifact path inside `preprocess.py`, `rank.py`, or any `src/` module.
+
+---
+
 ## 4. Phase 0 — JD Intelligence
 
 ### 4.1 What this phase does
 
-Runs once offline. Parses the job description into a structured config, creates two semantic embedding variants for ensemble retrieval, and builds the BM25 keyword list.
+Runs **once offline**, no time constraint. Parses `JD_contract.yaml` into a structured config, generates **3 natural-language JD query strings** and encodes them via BGE-M3 into:
+- 3 dense `.npy` vectors (for FAISS search)
+- 1 learned-sparse `.npz` CSR query vector (for dot-product sparse retrieval)
+
+Also builds the BM25 keyword list for lexical anchor retrieval.
+
+**ColBERT multi-vectors are hard-disabled.** BGE-M3 ColBERT stores one 1024-dim vector per token per document. At 100K candidates with ~256 average tokens, that is ~100 GB of RAM. Hard-disable in all encode calls: `return_colbert_vecs=False`.
+
+**GPU/CPU Auto-Detection:** The offline phase should exploit available GPU (Colab T4/A100 or AMD ROCm VM) automatically, falling back to multi-threaded CPU.
+
+```python
+import torch
+device = "cuda" if torch.cuda.is_available() else "cpu"
+use_fp16 = (device == "cuda")  # fp16 only safe on GPU
+```
 
 ### 4.2 Structured JD config
 
@@ -212,51 +368,136 @@ JD_CONFIG = {
 }
 ```
 
-### 4.3 JD Embeddings — Two Variants
+### 4.3 JD Query Strings — Three Variants
 
-Use `BAAI/bge-m3` (dense + sparse, 570MB). Load once and reuse.
+Use `BAAI/bge-m3` (dense + learned-sparse, ~570 MB). Load once and reuse across all three encodings.
 
-**Variant 1: Skills-focused** (dense on technical vocabulary):
+**Why three query strings?**
+- BGE-M3 is trained on natural sentence pairs. Syntactic structure guides token attention. A keyword dump (`"FAISS Pinecone BM25 NDCG"`) gives worse attention distribution than a grammatically coherent sentence.
+- Each variant targets a different profile archetype that the JD explicitly says is a fit. One dense vector cannot capture both the IR vocabulary specialist and the RecSys engineer simultaneously.
+- The third learned-sparse vector adds a complementary signal: it captures implicit vocabulary expansion (e.g., "vector store" bridging to "Milvus") that lexical BM25 misses.
+
+**Variant 1: v1_skills — Auto-generated from YAML must_have + nice_to_have tokens**
+
+Do not write this string by hand. Build it programmatically by flattening `JD_CONFIG` fields into human-readable sentences so it stays synchronized with `JD_contract.yaml`:
 
 ```python
-JD_SKILLS_TEXT = """
-Senior AI Engineer production embeddings retrieval systems sentence-transformers BGE E5
-vector databases Pinecone Weaviate Qdrant Milvus OpenSearch Elasticsearch FAISS
-hybrid search semantic search dense retrieval Python evaluation frameworks NDCG MRR MAP
-A/B testing ranking systems recommendation systems learning to rank XGBoost neural reranking
-product company applied ML deployment real users inference optimization latency
+def build_v1_skills_text(jd_config: dict) -> str:
+    """
+    Flatten JD_CONFIG into coherent natural-language sentences.
+    This keeps the query synchronized with JD_contract.yaml without manual editing.
+    """
+    must = ". ".join(jd_config.get("must_have", []))
+    nice = ". ".join(jd_config.get("nice_to_have", []))
+    locations = ", ".join(jd_config.get("location_prefs", []))
+    return (
+        f"Senior AI Engineer with expertise in {must}. "
+        f"Beneficial experience includes {nice}. "
+        f"Located in or willing to relocate to {locations}. "
+        "Strong Python engineering skills. Applied ML at product companies. "
+        "Has shipped production ranking, search, or recommendation systems to real users at scale."
+    )
+
+JD_V1_SKILLS_TEXT = build_v1_skills_text(JD_CONFIG)
+```
+
+**Variant 2: HyDE Persona — RecSys / Marketplace Ranking Engineer**
+
+HyDE (Hypothetical Document Embeddings, Gao et al. 2022) improves retrieval by mapping JD-space into candidate-resume-space. Instead of embedding the job description, we embed a synthetic candidate profile that would be a perfect fit. This closes the stylistic gap between an interrogative job description and descriptive resume text.
+
+*Implementation note:* Standard HyDE uses an LLM per query call, adding 25–40% latency. Since Phase 0 runs offline once, we use three manually-crafted static persona blocks — same benefit, zero LLM runtime dependency.
+
+```python
+JD_HYDE_RECSYS_TEXT = """
+I am a Senior ML Engineer with 7 years of experience building recommendation and ranking systems
+at product companies. My most recent role involved designing and shipping a two-sided marketplace
+matching engine that ranked 50M job candidates against 200K open roles daily. I implemented
+collaborative filtering with matrix factorization, item and user embeddings, and a learning-to-rank
+stage using XGBoost and LambdaMART. I have deep experience with candidate-job matching pipelines,
+feed ranking systems, personalization engines, and real-time scoring infrastructure. I care deeply
+about offline-online evaluation gap, run regular A/B tests, and measure ranking quality using
+NDCG, MRR, and MAP. I have shipped from zero to production at a startup and understand the full
+stack from embedding training to serving latency to business metric impact.
 """
 ```
 
-**Variant 2: Synthetic Ideal Candidate** (directly from JD "How to read between the lines"):
+**Variant 3: HyDE Persona — Evaluation / Metrics / Retrieval Depth Expert**
 
 ```python
-JD_IDEAL_TEXT = """
-6 to 8 years total experience of which 4 to 5 are in applied ML and AI roles at product companies
-not pure services. Has shipped at least one end-to-end ranking search or recommendation system
-to real users at meaningful scale. Has strong opinions about retrieval hybrid versus dense
-evaluation offline versus online and LLM integration when to fine-tune versus prompt and can
-defend them with reference to systems they actually built. Located in or willing to relocate to
-Noida or Pune. Active on platform recently logged in responds to recruiters.
+JD_HYDE_EVAL_TEXT = """
+I am a Senior AI Engineer specializing in information retrieval systems and evaluation
+methodology with 6 years in applied ML at product companies. I built dense and sparse retrieval
+pipelines using FAISS, Elasticsearch, and Qdrant, and implemented hybrid search combining BM25
+lexical signals with bi-encoder dense vectors. I have designed rigorous evaluation frameworks
+measuring NDCG@10, MRR, MAP, and Precision@K, and I understand the gap between offline benchmark
+metrics and online A/B test outcomes. I have fine-tuned cross-encoders for reranking and trained
+bi-encoders using contrastive learning on domain-specific datasets. I write production Python,
+deploy inference services with low latency, and have worked on retrieval-augmented generation
+pipelines with a strong preference for pre-LLM retrieval engineering foundations.
 """
 ```
+
+### 4.4 BGE-M3 Encoding and Artifact Generation
+
+**Hard rule: `return_colbert_vecs=False` on every encode call.**
 
 ```python
 from FlagEmbedding import BGEM3FlagModel
-
-model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
-
-jd_skills_output = model.encode(JD_SKILLS_TEXT, return_dense=True, return_sparse=True)
-jd_ideal_output = model.encode(JD_IDEAL_TEXT, return_dense=True, return_sparse=True)
-
 import numpy as np
-np.save("artifacts/jd_skills_vector.npy", jd_skills_output["dense_vecs"])
-np.save("artifacts/jd_ideal_vector.npy", jd_ideal_output["dense_vecs"])
+import scipy.sparse
+import torch
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+use_fp16 = (device == "cuda")
+
+model = BGEM3FlagModel(
+    "BAAI/bge-m3",
+    use_fp16=use_fp16,
+    device=device
+)
+
+queries = {
+    "jd_v1_skills": JD_V1_SKILLS_TEXT,
+    "jd_hyde_recsys": JD_HYDE_RECSYS_TEXT,
+    "jd_hyde_eval": JD_HYDE_EVAL_TEXT,
+}
+
+sparse_dicts = []  # will hold the 3 query sparse dicts for CSR construction
+
+for name, text in queries.items():
+    output = model.encode(
+        text,
+        return_dense=True,
+        return_sparse=True,
+        return_colbert_vecs=False  # HARD DISABLED — see §3.3
+    )
+    np.save(f"artifacts/{name}_vector.npy", output["dense_vecs"])
+    sparse_dicts.append(output["lexical_weights"])  # dict[int, float]
+
+# Build a single consolidated sparse CSR query matrix (3 queries × vocab_size)
+# Vocab size is dynamically inferred — never hardcoded.
+vocab_size = max(max(d.keys()) for d in sparse_dicts) + 1
+
+rows, cols, vals = [], [], []
+for i, d in enumerate(sparse_dicts):
+    for token_id, weight in d.items():
+        rows.append(i)
+        cols.append(token_id)
+        vals.append(weight)
+
+query_sparse_csr = scipy.sparse.csr_matrix(
+    (vals, (rows, cols)),
+    shape=(len(sparse_dicts), vocab_size)
+)
+scipy.sparse.save_npz("artifacts/jd_sparse_query.npz", query_sparse_csr)
+print(f"Phase 0 complete. vocab_size={vocab_size}, query_sparse shape={query_sparse_csr.shape}")
 ```
 
-The two embeddings represent two perspectives on the ideal candidate: technical vocabulary match and narrative/career-pattern match. Using both in retrieval catches candidates that one vector alone would miss.
+**Why dynamic vocab_size?** The XLM-RoBERTa tokenizer used by BGE-M3 has ~250,002 token IDs (confirmed). But hardcoding any constant risks an index-out-of-bounds crash if the actual max observed token ID is higher. Dynamic inference (`max(max(d.keys()) for d in sparse_dicts) + 1`) costs nothing and eliminates this entire class of bug.
 
-### 4.4 BM25 Keyword List
+### 4.5 BM25 Keyword List
+
+Used as the 5th signal in Phase 1d RRF. Kept as a separate, complementary signal to learned-sparse BGE-M3: BM25 is a literal term anchor for multi-word domain-specific phrases (e.g., `"schema drift"`, `"golden dataset"`, `"embedding drift"`) that BGE-M3's XLM-RoBERTa subword tokenizer fragments and weights poorly.
 
 ```python
 JD_KEYWORDS = [
@@ -268,11 +509,29 @@ JD_KEYWORDS = [
     "recommendation system", "search ranking", "relevance", "inverted index",
     "approximate nearest neighbor", "ANN", "evaluation framework",
     "offline evaluation", "online evaluation", "production ML", "inference",
-    "semantic search", "bi-encoder", "cross-encoder", "reranker"
+    "semantic search", "bi-encoder", "cross-encoder", "reranker",
+    "schema drift", "embedding drift", "golden dataset"
 ]
 ```
 
 Save as `artifacts/jd_keywords.json`.
+
+### 4.6 Step 1 Validation: test_sparse_pipeline.py
+
+**This script must be written and executed before any other pipeline code is built.** It proves end-to-end mathematical integrity of the sparse storage and runtime dot-product path on 1,000 mock candidates.
+
+The 9-step sequence:
+1. **Load Model** — Initialize `BGEM3FlagModel` with GPU/CPU auto-detection and `return_colbert_vecs=False`.
+2. **Mock Encode** — Pass 1,000 dummy candidate text strings through the encoder with `return_sparse=True`.
+3. **Infer Vocab Size** — `vocab_size = max(max(d.keys()) for d in sparse_dicts) + 1`. Never hardcode.
+4. **Build Candidate CSR** — Convert `list[dict[int, float]]` → `scipy.sparse.csr_matrix(shape=(1000, vocab_size))`.
+5. **Save** — `scipy.sparse.save_npz("test_candidate_sparse.npz", candidate_csr)`.
+6. **Load** — `candidate_csr = scipy.sparse.load_npz("test_candidate_sparse.npz")`.
+7. **Encode JD Query** — Encode one sample JD text with `return_sparse=True`; get `query_dict: dict[int, float]`.
+8. **Build Query CSR** — `scipy.sparse.csr_matrix(([...], ([0]*len(q), list(q.keys()))), shape=(1, vocab_size))` using the **same** `vocab_size` inferred in step 3.
+9. **Dot Product + Validate** — `scores = candidate_csr.dot(query_csr.T).toarray().flatten()`. Assert: `len(scores) == 1000`, `np.isfinite(scores).all()`, `not np.isnan(scores).any()`.
+
+> **Developer Note (Step 9):** The result of `.dot()` on a sparse matrix is itself sparse. You **must** chain `.toarray().flatten()` to get a dense NumPy float array. Failure to do this breaks all downstream RRF sorting.
 
 ---
 
@@ -304,34 +563,77 @@ def build_profile_text(candidate):
     return " ".join(p for p in parts if p).strip()
 ```
 
-### 5.3 Corpus embedding and FAISS index
+### 5.3 Corpus embedding — Dense FAISS index + Learned-Sparse CSR matrix
+
+Both dense and learned-sparse outputs are generated in a **single encoding pass** over the 100K corpus. ColBERT is hard-disabled on every call.
+
+**Batch size guidance:** GPU (Colab T4): batch_size=512 works well. CPU fallback: use batch_size=32–64 to avoid OOM.
 
 ```python
 import faiss
 import numpy as np
+import scipy.sparse
+import json
+import torch
 from FlagEmbedding import BGEM3FlagModel
 
-model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+use_fp16 = (device == "cuda")
+batch_size = 512 if device == "cuda" else 32
 
-# Stream candidates, encode in batches, build FAISS index
+model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16, device=device)
+
 all_texts = []
 all_ids = []
-
 for candidate in stream_candidates("candidates.jsonl"):
     all_texts.append(build_profile_text(candidate))
     all_ids.append(candidate["candidate_id"])
 
-# Encode in batches of 512
-embeddings = model.encode(all_texts, batch_size=512, return_dense=True)["dense_vecs"]
-embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)  # L2-normalize
+# --- Encode in batches ---
+all_dense = []
+all_sparse_dicts = []  # list[dict[int, float]], one per candidate
 
-# Build FAISS IndexFlatIP (inner product = cosine on L2-normalized vectors)
+for i in range(0, len(all_texts), batch_size):
+    batch = all_texts[i:i + batch_size]
+    output = model.encode(
+        batch,
+        return_dense=True,
+        return_sparse=True,
+        return_colbert_vecs=False  # HARD DISABLED
+    )
+    all_dense.append(output["dense_vecs"])
+    all_sparse_dicts.extend(output["lexical_weights"])
+    if (i // batch_size) % 20 == 0:
+        print(f"  Encoded {i + len(batch):,} / {len(all_texts):,} candidates")
+
+# --- Build FAISS index (dense) ---
+embeddings = np.vstack(all_dense).astype(np.float32)
+embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)  # L2-normalize for cosine via IP
 index = faiss.IndexFlatIP(embeddings.shape[1])
-index.add(embeddings.astype(np.float32))
-
+index.add(embeddings)
 faiss.write_index(index, "artifacts/faiss_index.bin")
-import json
 json.dump(all_ids, open("artifacts/candidate_ids.json", "w"))
+print(f"FAISS index saved: {len(all_ids):,} candidates, dim={embeddings.shape[1]}")
+
+# --- Build Candidate Sparse CSR matrix ---
+# Vocab size is dynamically inferred — never hardcoded.
+vocab_size = max(max(d.keys()) for d in all_sparse_dicts if d) + 1
+
+rows, cols, vals = [], [], []
+for i, d in enumerate(all_sparse_dicts):
+    for token_id, weight in d.items():
+        rows.append(i)
+        cols.append(token_id)
+        vals.append(float(weight))
+
+candidate_sparse_csr = scipy.sparse.csr_matrix(
+    (vals, (rows, cols)),
+    shape=(len(all_sparse_dicts), vocab_size)
+)
+scipy.sparse.save_npz("artifacts/candidate_sparse.npz", candidate_sparse_csr)
+print(f"Sparse CSR saved: shape={candidate_sparse_csr.shape}, nnz={candidate_sparse_csr.nnz:,}")
+# Expected memory: ~80-100 MB for 100K candidates at ~100 avg non-zero tokens
+# (vs 400 MB for dense, vs 25-100 GB for ColBERT)
 ```
 
 ### 5.4 BM25 index
@@ -349,7 +651,7 @@ with open("artifacts/candidate_texts.pkl", "wb") as f:
     pickle.dump(all_texts, f)
 ```
 
-### 5.5 Honeypot detection
+### 5.5 Phase 1A: Honeypot detection (Hard Eliminations)
 
 ```python
 def is_honeypot(candidate) -> bool:
@@ -358,80 +660,81 @@ def is_honeypot(candidate) -> bool:
     These are forced to relevance tier 0 in the ground truth.
     A True return means final_score = 0.0 — excluded from top 100.
     """
-    yoe = candidate.get("profile", {}).get("years_of_experience")
-    if yoe is None:
-        # If missing, derive from career history so we don't accidentally honeypot everyone
-        total_months = sum(r.get("duration_months", 0) for r in candidate.get("career_history", []))
-        yoe = total_months / 12.0
-    yoe_months = yoe * 12
     skills = candidate.get("skills", [])
     career = candidate.get("career_history", [])
-    assessment_scores = candidate.get("redrob_signals", {}).get("skill_assessment_scores", {})
 
-    # Check 1: Skill duration > total career length (+6 month grace)
-    for skill in skills:
-        duration = skill.get("duration_months", 0)
-        if duration > yoe_months + 6:
-            return True
+    # Calculate chronological career duration dynamically
+    start_dates = []
+    end_dates = []
+    from datetime import date
+    
+    for role in career:
+        # Assuming parse_date safely parses 'YYYY-MM', 'YYYY', or returns None
+        sd = parse_date(role.get("start_date"))
+        ed = parse_date(role.get("end_date"))
+        if sd: start_dates.append(sd)
+        if ed: end_dates.append(ed)
+        if not ed and role.get("start_date"):
+            # Assume current role goes to present (e.g. June 2026 for this dataset)
+            end_dates.append(date(2026, 6, 1))
 
-    # Check 2: Expert/advanced skill with ZERO duration
+    if start_dates and end_dates:
+        min_start = min(start_dates)
+        max_end = max(end_dates)
+        chrono_months = max(0, (max_end - min_start).days / 30.436875)
+    else:
+        chrono_months = 0.0
+
+    # Rule 1: Zero-Duration Expert
     for skill in skills:
         if skill.get("proficiency") in ("expert", "advanced"):
             duration = skill.get("duration_months", None)
             if duration is not None and duration == 0:
                 return True
 
-    # Check 3: Expert/advanced skill with low assessment score
+    # Rule 2: Single Role Exceeds Career Timeline (+12mo buffer)
+    for role in career:
+        role_duration = role.get("duration_months", 0)
+        if role_duration > chrono_months + 12:
+            return True
+
+    # Rule 3: Extreme Chronological Overlap (>1.5x)
+    if chrono_months > 0:
+        total_career_months = sum(r.get("duration_months", 0) for r in career)
+        if total_career_months / chrono_months > 1.5:
+            return True
+
+    return False
+```
+
+### 5.5b Phase 1B: Consistency Signals
+
+We separate suspicious features from impossible features. These are extracted here but used later as penalties in Phase 5, rather than hard eliminations.
+
+```python
+def extract_consistency_signals(candidate, chrono_months) -> dict:
+    skills = candidate.get("skills", [])
+    assessment_scores = candidate.get("redrob_signals", {}).get("skill_assessment_scores", {})
+    
+    signals = {
+        "contradiction_skill_duration": 0,
+        "contradiction_assessment": 0
+    }
+    
+    # Signal 1: Skill duration > chronological career length (+48 month pre-career learning grace)
+    for skill in skills:
+        duration = skill.get("duration_months", 0)
+        if duration > chrono_months + 48:
+            signals["contradiction_skill_duration"] += 1
+            
+    # Signal 2: Expert/advanced skill with low assessment score
     for skill in skills:
         if skill.get("proficiency") in ("expert", "advanced"):
             score = assessment_scores.get(skill["name"])
             if score is not None and score < 40:
-                return True
-
-    # Check 4: Per-role tenure > total YoE
-    for role in career:
-        role_duration = role.get("duration_months", 0)
-        if role_duration > yoe_months + 12:
-            return True
-
-    # Check 5: The "LLM Repetition" Trap
-    # 10+ skills and every single one has the exact same duration_months
-    if len(skills) >= 10:
-        durations = {s.get("duration_months") for s in skills if "duration_months" in s}
-        if len(durations) == 1 and list(durations)[0] is not None:
-            return True
-
-    # Check 6: The "Empty Shell" Trap
-    # Claiming > 5 years of experience but having zero job history
-    if yoe > 5 and len(career) == 0:
-        return True
-
-    # Check 7: The "Impossible Overlap" Trap
-    # Sum of all job durations is > 1.5x their stated YoE (hallucinated timelines)
-    if yoe_months > 0:
-        total_career_months = sum(r.get("duration_months", 0) for r in career)
-        # Give a grace period for small overlaps, but flag massive >1.5x concurrency
-        if total_career_months > (yoe_months * 1.5) + 12:
-            return True
-
-    # Check 8: Company Founding Time Travel
-    # JD warning: "8 years of experience at a company founded 3 years ago"
-    KNOWN_COMPANIES = {
-        "anthropic": 2021, "openai": 2015, "hugging face": 2016, "huggingface": 2016,
-        "pinecone": 2019, "qdrant": 2021, "weaviate": 2019, "langchain": 2022,
-        "llamaindex": 2022, "redrob": 2023, "cohere": 2019, "mistral": 2023
-    }
-    for role in career:
-        company = role.get("company", "").lower()
-        duration_years = role.get("duration_months", 0) / 12.0
-        for comp_name, founded_year in KNOWN_COMPANIES.items():
-            if comp_name in company:
-                # Assuming current year is 2026 per hackathon timeline
-                max_possible_years = 2026 - founded_year + 1 
-                if duration_years > max_possible_years:
-                    return True
-
-    return False
+                signals["contradiction_assessment"] += 1
+                
+    return signals
 ```
 
 ### 5.6 Ghost profile pre-filter
@@ -481,7 +784,7 @@ def tag_disqualifiers(candidate) -> dict:
     desc_text = " ".join(r.get("description", "").lower() for r in career)
     skills_lower = [s["name"].lower() for s in candidate.get("skills", [])]
 
-    # consulting_only: entire career at consulting firms, zero product company tenure
+    # consulting_only: ENTIRE career at consulting firms. If ANY non-consulting role is present, evaluates to False.
     total_months = sum(r.get("duration_months", 0) for r in career)
     consulting_months = sum(
         r.get("duration_months", 0) for r in career
@@ -526,6 +829,8 @@ Save `artifacts/candidate_flags.parquet` with one row per candidate:
 | consulting_only | bool | Entire career at consulting firms |
 | research_only | bool | Only academic/research roles |
 | wrong_domain | bool | CV/speech/robotics, no NLP/IR |
+| contradiction_skill_duration | int | Count of skills > career timeline + 48mo |
+| contradiction_assessment | int | Count of expert skills with test score < 40 |
 
 ---
 
@@ -590,9 +895,75 @@ Before RRF, lightly boost candidates who are actively seeking. This prevents act
 # This is a soft nudge, not a hard filter.
 ```
 
-### 6.5 Reciprocal Rank Fusion
+### 6.5 Five-Way Reciprocal Rank Fusion
+
+Upgraded from 3-signal to **5-signal RRF** with `k=60` (industry standard default, tunable in `weights.yaml`).
+
+The five orthogonal signals:
+1. **Dense List 1** — Cosine similarity via FAISS against `jd_v1_skills_vector.npy` (YAML-derived skills query)
+2. **Dense List 2** — Cosine similarity via FAISS against `jd_hyde_recsys_vector.npy` (RecSys HyDE persona)
+3. **Dense List 3** — Cosine similarity via FAISS against `jd_hyde_eval_vector.npy` (Eval/Metrics HyDE persona)
+4. **Learned Sparse List 4** — C-speed dot-product via SciPy CSR: `candidate_sparse_csr.dot(query_sparse_row.T).toarray().flatten()`
+5. **Lexical Sparse List 5** — `rank_bm25` exact term matching scores
+
+**Tokenizer alignment rule:** The same lowercasing + punctuation-stripping function must be used for both the candidate text preprocessing loop (Phase 1b BM25 build) and the BM25 query construction. Mismatched tokenization silently degrades sparse recall.
 
 ```python
+import numpy as np
+import scipy.sparse
+import faiss
+import json
+from rank_bm25 import BM25Okapi
+
+# --- Load precomputed artifacts ---
+index = faiss.read_index("artifacts/faiss_index.bin")
+all_ids = json.load(open("artifacts/candidate_ids.json"))
+candidate_sparse_csr = scipy.sparse.load_npz("artifacts/candidate_sparse.npz")
+
+# Load 3 dense JD query vectors
+jd_v1 = np.load("artifacts/jd_v1_skills_vector.npy").astype(np.float32).reshape(1, -1)
+jd_recsys = np.load("artifacts/jd_hyde_recsys_vector.npy").astype(np.float32).reshape(1, -1)
+jd_eval = np.load("artifacts/jd_hyde_eval_vector.npy").astype(np.float32).reshape(1, -1)
+
+# Load sparse query CSR (row 0 = v1_skills, row 1 = recsys, row 2 = eval)
+jd_sparse_all = scipy.sparse.load_npz("artifacts/jd_sparse_query.npz")
+# Use the v1_skills sparse row as the canonical sparse query signal
+jd_sparse_row = jd_sparse_all[0]  # shape: (1, vocab_size)
+
+# --- Signal 1, 2, 3: Dense FAISS searches ---
+_, idx1 = index.search(jd_v1, k=2000)
+_, idx2 = index.search(jd_recsys, k=2000)
+_, idx3 = index.search(jd_eval, k=2000)
+dense_ids_v1 = [all_ids[i] for i in idx1[0]]
+dense_ids_recsys = [all_ids[i] for i in idx2[0]]
+dense_ids_eval = [all_ids[i] for i in idx3[0]]
+
+# --- Signal 4: Learned Sparse dot-product (C-speed) ---
+# vocab_size must match the CSR matrix shape. Resize query if needed.
+vocab_size = candidate_sparse_csr.shape[1]
+if jd_sparse_row.shape[1] < vocab_size:
+    jd_sparse_row = scipy.sparse.hstack([
+        jd_sparse_row,
+        scipy.sparse.csr_matrix((1, vocab_size - jd_sparse_row.shape[1]))
+    ])
+elif jd_sparse_row.shape[1] > vocab_size:
+    jd_sparse_row = jd_sparse_row[:, :vocab_size]
+
+sparse_scores = candidate_sparse_csr.dot(jd_sparse_row.T).toarray().flatten()
+# .toarray().flatten() is mandatory — dot() returns a sparse structure
+top_sparse_idx = np.argsort(sparse_scores)[::-1][:2000]
+sparse_ids_learned = [all_ids[i] for i in top_sparse_idx]
+
+# --- Signal 5: BM25 lexical ---
+with open("artifacts/bm25_index.pkl", "rb") as f:
+    bm25 = pickle.load(f)
+keywords = json.load(open("artifacts/jd_keywords.json"))
+query_tokens = normalize_text(" ".join(keywords)).split()  # same tokenizer as index build
+bm25_scores = bm25.get_scores(query_tokens)
+top_bm25_idx = np.argsort(bm25_scores)[::-1][:2000]
+sparse_ids_bm25 = [all_ids[i] for i in top_bm25_idx]
+
+# --- 5-Way RRF ---
 def rrf(ranked_lists: list[list[str]], k: int = 60) -> dict[str, float]:
     scores = {}
     for ranked in ranked_lists:
@@ -600,14 +971,22 @@ def rrf(ranked_lists: list[list[str]], k: int = 60) -> dict[str, float]:
             scores[cand_id] = scores.get(cand_id, 0.0) + 1.0 / (k + rank_idx + 1)
     return scores
 
-rrf_scores = rrf([dense_ids_skills, dense_ids_ideal, sparse_ids])
+rrf_scores = rrf([
+    dense_ids_v1,       # Signal 1
+    dense_ids_recsys,   # Signal 2
+    dense_ids_eval,     # Signal 3
+    sparse_ids_learned, # Signal 4
+    sparse_ids_bm25,    # Signal 5
+])
 
-# Sort by RRF score, take top 5000
+# Sort by RRF score, save top 5000 to parquet
 retrieved = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:5000]
 retrieved_ids = [r[0] for r in retrieved]
 ```
 
-The union of three retrievers typically produces 3,000–5,000 unique candidates. These go to Phase 3 for feature extraction.
+**k-tuning note:** `k=60` is the industry default. If validation shows precision loss at top-10, try sweeping k ∈ [10, 100] against `metadata/validation_set.json`. Document the winning value in `weights.yaml`.
+
+The union of five retrievers typically produces 4,000–7,000 unique candidates before the top-5000 cut. These go to Phase 3 for feature extraction.
 
 **Recall verification (do this once during development):** After building the retrieval pool, manually confirm that 10+ Tier 3 candidates from your validation set are present. A missing Tier 3 candidate at this stage is unrecoverable. Fix retriever thresholds before proceeding.
 
@@ -868,102 +1247,22 @@ def score_career_quality(candidate, career_text, flags):
     }
 ```
 
-### 7.5 Consistency Score
-
-Detects candidates who claim high-proficiency skills that are not supported by their actual career trajectory. This is distinct from honeypot detection (which catches impossible timelines). Consistency Score catches the **skill-career identity mismatch** — the most common form of keyword stuffing the JD warns about.
-
-**Examples of inconsistency this catches:**
-- Claims `NLP: Expert` → career is entirely BI Analyst / Data Analyst roles
-- Claims `LLM fine-tuning: Expert` → skill duration is 3 months
-- Claims `Retrieval systems: Advanced` → no retrieval or search terms in any career description
-
-```python
-# Domains mapped to career title signals that would NOT support the claim
-DOMAIN_TITLE_CONTRADICTION = {
-    "nlp": ["bi analyst", "business analyst", "data analyst", "excel", "tableau",
-            "reporting", "bi developer", "sql analyst"],
-    "retrieval": ["bi analyst", "business analyst", "data analyst", "frontend",
-                  "mobile developer", "android", "ios"],
-    "llm": ["bi analyst", "business analyst", "data analyst", "manual qa",
-            "support engineer", "it support"],
-    "ranking": ["bi analyst", "data analyst", "frontend developer",
-                "mobile developer", "devops"],
-}
-
-# JD-target skill keywords to check for claim vs evidence mismatch
-CONSISTENCY_TARGET_SKILLS = [
-    "nlp", "retrieval", "ranking", "recommendation", "embeddings",
-    "llm", "vector", "search", "faiss", "transformer"
-]
-
-def compute_consistency_score(candidate, career_text) -> float:
-    """
-    Returns a score in [0, 1] where 1 = fully consistent, 0 = maximally inconsistent.
-    Detects: expert/advanced skill claims unsupported by career title or skill duration.
-    """
-    skills = candidate.get("skills", [])
-    career = candidate.get("career_history", [])
-    all_titles = " ".join(r.get("title", "").lower() for r in career)
-
-    total_checks = 0
-    contradiction_count = 0
-
-    for skill in skills:
-        name = skill["name"].lower()
-        proficiency = skill.get("proficiency", "beginner")
-        duration = skill.get("duration_months", 0)
-
-        # Only check claimed advanced/expert skills — beginner/intermediate are low risk
-        if proficiency not in ("advanced", "expert"):
-            continue
-
-        is_target = any(kw in name for kw in CONSISTENCY_TARGET_SKILLS)
-        if not is_target:
-            continue
-
-        total_checks += 1
-        contradictions = 0
-
-        # Check 1: Career title contradiction — claimed domain not reflected in any role title
-        # Checked against current title only to avoid penalizing legitimate career progression
-        current_title = candidate.get("profile", {}).get("current_title", "").lower()
-        for domain, bad_titles in DOMAIN_TITLE_CONTRADICTION.items():
-            if domain in name:
-                if any(bt in current_title for bt in bad_titles):
-                    contradictions += 1
-                break
-
-        # Check 2: Duration contradiction — expert claim with < 12 months of usage
-        if duration > 0 and duration < 12:
-            contradictions += 1
-
-        # Check 3: Career text contradiction — skill not mentioned anywhere in career descriptions
-        if name not in career_text.lower():
-            contradictions += 0.5  # Partial penalty — may use synonym
-
-        if contradictions >= 1:
-            contradiction_count += 1
-
-    if total_checks == 0:
-        return 1.0  # No advanced/expert target-skill claims to check — neutral
-
-    contradiction_ratio = contradiction_count / total_checks
-    # Score: 1.0 = fully consistent, 0.5 = half claims are contradicted, 0.0 = all contradicted
-    return round(1.0 - (contradiction_ratio * 0.7), 4)  # Scale: max penalty is 0.70 drop
-```
-
-Store `consistency_score` alongside Bucket A/B/C outputs. Use it as a multiplier in Phase 5.
 
 ### 7.5 Bucket C — JD Fit Gaps
 
 ```python
 def score_fit_gaps(candidate, career_text, flags):
     # Title velocity: avg tenure < 18 months across 3+ roles
+    # Exclude current role from average tenure calculation (accumulating) per contract instructions
     career = candidate.get("career_history", [])
-    if len(career) >= 3:
-        avg_tenure = sum(r.get("duration_months", 0) for r in career) / len(career)
-        title_velocity_flag = avg_tenure < 18
+    past_roles = career[1:] if len(career) > 1 else []
+    valid_durations = [r.get("duration_months") for r in past_roles if r.get("duration_months") is not None]
+    
+    if len(past_roles) > 0 and len(valid_durations) == len(past_roles):
+        avg_tenure = sum(valid_durations) / len(valid_durations)
+        title_velocity_flag = (avg_tenure < 18.0) and (len(career) >= 3)
     else:
+        # Missing token guardrails: fail open if durations are missing or only 1 career role exists
         title_velocity_flag = False
 
     # Consulting flag (from Phase 1 flags)
@@ -985,21 +1284,19 @@ def score_fit_gaps(candidate, career_text, flags):
     STOPPED_CODING_TITLES = {"architect", "vp", "vice president", "director", "cto", "head of"}
     code_stopped = yoe > 8 and any(t in current_title for t in STOPPED_CODING_TITLES)
 
-    # Seniority score: JD says 5-9 years is a range, not a hard requirement.
-    # "We'll seriously consider candidates outside the band if other signals are strong."
-    # Model as a soft multiplier — sweet spot = 1.0, outside band tapers gradually.
-    if 5 <= yoe <= 9:
-        seniority_score = 1.00   # Sweet spot
-    elif 4 <= yoe < 5:
-        seniority_score = 0.85   # Slightly junior; acceptable if signals strong
-    elif 10 <= yoe <= 12:
-        seniority_score = 0.90   # Mild over-seniority; founding team dynamic
-    elif 3 <= yoe < 4:
-        seniority_score = 0.65   # Significant gap; needs exceptional other signals
-    elif yoe > 12:
-        seniority_score = 0.80   # Likely over-senior for fast-moving founding role
+    # Seniority score: continuous float bands aligned with JD_contract.yaml and without gaps
+    if 5.0 <= yoe < 10.0:
+        seniority_score = 1.00   # Sweet spot (5.0 - 9.9)
+    elif 4.0 <= yoe < 5.0:
+        seniority_score = 0.95   # Slightly junior (4.0 - 4.9)
+    elif 10.0 <= yoe < 13.0:
+        seniority_score = 0.95   # Mild over-seniority (10.0 - 12.9)
+    elif 0.0 <= yoe < 4.0:
+        seniority_score = 0.75   # Junior / significant gap (0.0 - 3.9)
+    elif yoe >= 13.0:
+        seniority_score = 0.90   # Over-senior (13.0 - 99.0)
     else:
-        seniority_score = 0.40   # <3 years: very unlikely fit
+        seniority_score = 1.00   # Default/fallback
 
     # LangChain-only flag: JD says "if your AI experience consists primarily of recent
     # (under 12 months) projects using LangChain to call OpenAI, we will probably not move forward
@@ -1138,7 +1435,6 @@ def extract_behavioral(candidate, reference_date) -> dict:
 | `sys_experience_score` | float | Bucket B system evidence |
 | `product_builder_score`| float | Bucket B composite (normalized [0,1]) |
 | `seniority_score` | float | Bucket C (from `score_fit_gaps`) |
-| `consistency_score` | float | Skill claim contradiction penalty |
 | `snippets_json` | string | JSON dict of the best 60-char evidence snippets |
 
 ---
@@ -1156,19 +1452,23 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
     eval_ev = bucket_a.get("eval_framework", 0.0) / 3.0
     python_ev = bucket_a.get("python_coding", 0.0) / 3.0
 
-    must_have_raw = (
-        0.25 * retrieval_ev +
-        0.20 * vectordb_ev +
-        0.10 * eval_ev +
-        0.05 * python_ev
-    )
-
-    # Get system experience score from Bucket B
+    # sys_experience_score captures recsys/matching/feed-ranking builders who satisfy the JD
+    # without using exact IR vocabulary. JD explicitly says: "a candidate who built a
+    # recommendation system at a product company is a fit even if they never say RAG, Pinecone,
+    # or FAISS." Must be a FIRST-CLASS contributor, not just a gate condition.
     sys_experience_score = bucket_b.get("sys_experience_score", 0.0)
 
-    # Softened Hard cap: if candidate has zero retrieval/search evidence AND zero vector DB evidence AND zero
+    must_have_raw = (
+        0.25 * retrieval_ev +           # Core IR/search evidence (primary signal)
+        0.20 * vectordb_ev +            # Vector DB / hybrid search
+        0.20 * sys_experience_score +   # Recsys/matching/ranking systems — equal to vector_db per JD
+        0.10 * eval_ev +                # Evaluation culture (NDCG/MRR/A-B)
+        0.05 * python_ev                # Python coding evidence
+    )
+
+    # Softened Hard cap: if candidate has zero retrieval, zero vector DB, AND zero
     # broad system/recommendation evidence, cap must-have score at 0.5.
-    # Recsys/matching engine experience implies semantic search capability per JD.
+    # A candidate with only eval evidence but no system evidence is a weak fit.
     has_any_retrieval_or_recsys = (
         bucket_a["retrieval_search"] > 0 or
         bucket_a["vector_db_hybrid"] > 0 or
@@ -1177,8 +1477,9 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
     if not has_any_retrieval_or_recsys:
         must_have_raw = min(must_have_raw, 0.5)
 
-    must_have_score = must_have_raw / 0.60  # Normalize to [0,1]
+    must_have_score = must_have_raw / 0.80  # Normalize to [0,1] (max raw = 0.25+0.20+0.20+0.10+0.05)
     must_have_score = min(must_have_score, 1.0)  # Cap at 1.0 in case of assessment bonuses
+
 
     # --- Nice-to-Have Score (10%) ---
     # Weight reduced from 20% → 10%; headroom reallocated to Product Builder Score.
@@ -1284,6 +1585,23 @@ scored_df["final_phase4_score"] = (
 )
 ```
 
+### 8.3 Alternative Architecture: LLM-based Reranking
+
+If deeper reasoning is required beyond the precomputed `bge-reranker-v2-m3` cross-encoder, a fine-tuned or prompted LLM can replace the cross-encoder to capture the gap between what the JD says and what it means.
+
+#### Pipeline Flow with LLM Reranking
+1. **[Phase 2: BM25 + FAISS retrieval]** → top 3,000–5,000 candidates (fast, offline)
+2. **[Phase 3: Rule-based feature extraction]** → feature vectors (fast, CPU)
+3. **[Phase 4a: Core formula scoring]** → top 300 candidates
+4. **[Phase 4b: LLM rerank]** → LLM reads JD + candidate profile → produces a 0-10 fit score → top 100 candidates (LLM runs **only** on the 300 profiles)
+5. **[Phase 5: Behavioral multipliers]** → final ranking
+
+#### Feasibility and Constraints
+- **Execution Time:** Gemma 2B / Llama 3.1 8B (quantized GGUF) can process ~300 short candidate profiles in 2-3 minutes on CPU at 4-bit quantization. Since we are not running it on the full 100K corpus but only the pre-filtered top 300, it stays well within the 5-minute limit.
+- **Contextual Reasoning:** The LLM prompt includes the `JD_contract.yaml` logic as context, so it reasons about the specific intent, not just raw keywords.
+- **Implementation:** Use a 1B-3B model (e.g., Phi-3.5 Mini or Gemma 2B) fine-tuned or prompted to output a structured JSON score + 1-sentence reason, running inference over 300 candidate summaries. This is better than the current generic cross-encoder because it can reason about career arc, context, and semantic alignment.
+- **Strategic Value:** The hackathon scoring is 50% NDCG@10. An LLM making nuanced judgments on the top 300 will materially improve the top 10, whereas the rule-based system alone will plateau.
+
 ---
 
 ## 9. Phase 5 — Behavioral Re-ranking + Penalization
@@ -1313,16 +1631,16 @@ def availability_multiplier(behavioral) -> float:
 
 ```python
 def notice_modifier(days) -> float:
+    if days is None:
+        return 1.00  # Fail open / default
     if days <= 30:
         return 1.00  # JD: ideal, can buy out up to 30 days
     elif days <= 60:
         return 0.95
     elif days <= 90:
         return 0.90  # JD: "bar gets higher" at 30+
-    elif days <= 120:
-        return 0.85
     else:
-        return 0.75  # JD: "significant concern"
+        return 0.75  # JD: "significant concern" (>90 days) per contract
 ```
 
 ### 9.3 Location modifier
@@ -1414,8 +1732,15 @@ All penalties are **soft multipliers**. The JD uses language like "probably not 
 > **Validate harsh penalties before trusting them.** The multipliers below (`consulting_only ×0.4`, `research_only ×0.40`, `langchain_only_flag ×0.45`) are calibrated from JD language but have not yet been tested against the actual labeled set. If Redrob intentionally inserted edge-case candidates — e.g. a strong researcher with genuine product exposure, or a LangChain practitioner with a deep pre-LLM ML background — these will over-penalise real fits. Run Phase 7 validation against `metadata/validation_set.json` first. In particular: confirm that no Tier 3+ labeled candidate is being hard-penalised by a flag that misread their profile.
 
 ```python
-def soft_penalties(bucket_c, flags, behavioral, consistency_score) -> float:
+def soft_penalties(bucket_c, flags, behavioral) -> float:
     multiplier = 1.0
+
+    # Consistency score: skill-career mismatch multiplier computed from Phase 1B flags.
+    # Score 1.0 = no penalty. Score 0.30 = heavy mismatch (keyword stuffer).
+    # Drops 0.15 per contradiction.
+    contradictions = flags.get("contradiction_skill_duration", 0) + flags.get("contradiction_assessment", 0)
+    consistency_score = max(0.30, 1.0 - (0.15 * contradictions))
+    multiplier *= consistency_score
 
     # Title velocity: switched every ~1.5 years across 3+ jobs
     # JD: "not a fit" — strong signal but softened to 0.80;
@@ -1446,9 +1771,6 @@ def soft_penalties(bucket_c, flags, behavioral, consistency_score) -> float:
     if flags.get("wrong_domain"):
         multiplier *= 0.50
 
-    # Consistency score: skill-career mismatch multiplier.
-    # Score 1.0 = no penalty. Score 0.30 = heavy mismatch (keyword stuffer).
-    multiplier *= consistency_score
 
     # Closed-source only for 5+ years without external validation (GitHub, papers, talks)
     if bucket_c.get("closed_source_flag"):
@@ -1467,14 +1789,13 @@ def compute_final_score(candidate_data) -> float:
     bucket_b = candidate_data["bucket_b"]
     bucket_c = candidate_data["bucket_c"]
     flags = candidate_data["flags"]
-    consistency_score = candidate_data.get("consistency_score", 1.0)
 
     # Ghost and honeypot hard exclusions
     if flags.get("is_honeypot") or flags.get("is_ghost"):
         return 0.0
 
     avail_mult = availability_multiplier(behavioral)
-    penalty_mult = soft_penalties(bucket_c, flags, behavioral, consistency_score)
+    penalty_mult = soft_penalties(bucket_c, flags, behavioral)
 
     # Logistical signals: notice period, location, seniority, writing culture.
     # Grouped and floor-capped so no single operational signal collapses the score.
