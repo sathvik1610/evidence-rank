@@ -338,6 +338,21 @@ def _check_impossible_flag(candidate: dict) -> bool:
         if claimed_months > max_possible_months + constants.YOE_IMPOSSIBLE_BUFFER_MONTHS:
             return True
             
+    # I-5: Skill duration mathematically impossible given YoE (from validation_set rules)
+    yoe_months = profile.get("years_of_experience", 0) * 12
+    if any((s.get("duration_months") or 0) > yoe_months + 6 for s in skills):
+        return True
+        
+    # I-6: Expert/Advanced skill failed basic assessment (from validation_set rules)
+    assessment_scores = candidate.get("redrob_signals", {}).get("skill_assessment_scores", {})
+    if any(
+        s.get("proficiency") in ("expert", "advanced") 
+        and s.get("name") in assessment_scores 
+        and assessment_scores[s.get("name")] < 40 
+        for s in skills
+    ):
+        return True
+            
     return False
 
 def _compute_honeypot_score(candidate: dict) -> float:
