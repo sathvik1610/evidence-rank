@@ -1,0 +1,154 @@
+# weights.yaml — All tunable scoring weights, multipliers, boosts, and thresholds.
+#
+# Rules:
+#   - Every numeric value in scorer.py / behavioral.py must come from here.
+#   - Python code reads this file at startup with `yaml.safe_load`.
+#   - To tune without touching Python: edit this file, re-run rank.py.
+#   - Do NOT put structural constants here (batch sizes, file paths, model IDs).
+#     Those live in constants.py.
+#
+# Version: 1.0.0 (baseline — tune after first full run on validation set)
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Core Scoring weights
+# Must sum to 1.0 across the four buckets.
+# ---------------------------------------------------------------------------
+scoring:
+  must_have_weight:       0.55   # Bucket A: IR/search/vector/python evidence
+  nice_to_have_weight:    0.10   # Bucket A: LTR, LLM, distributed, HR-tech
+  career_quality_weight:  0.15   # Bucket B: recency, depth, domain quality
+  product_builder_weight: 0.20   # Bucket B: product-company + shipper composite
+
+  # Must-Have sub-weights (must sum to 0.80 — the normalization denominator)
+  must_have_sub:
+    retrieval_weight:      0.25  # Core IR / search / dense retrieval evidence
+    vectordb_weight:       0.20  # Vector DB / hybrid search evidence
+    sys_experience_weight: 0.20  # Recsys / matching / feed-ranking systems
+    eval_weight:           0.10  # Evaluation culture (NDCG / MRR / A-B testing)
+    python_weight:         0.05  # Python engineering evidence
+
+  # Nice-to-Have sub-weights (must sum to 0.10 — the normalization denominator)
+  nice_to_have_sub:
+    ltr_weight:            0.04  # Learning to rank / XGBoost / LambdaMART
+    llm_weight:            0.03  # LLM fine-tuning / RAG / HuggingFace
+    distributed_weight:    0.02  # Distributed systems / inference optimization
+    hr_tech_weight:        0.01  # HR-tech / recruiting marketplace exposure
+
+  # Career Quality sub-weights (must sum to 0.15 — the normalization denominator)
+  career_quality_sub:
+    sys_experience_weight: 0.08  # Built the right kind of systems (recsys/search)
+    recency_weight:        0.04  # Most recent role in a relevant domain
+    depth_weight:          0.03  # IR/retrieval evidence across multiple roles
+
+  # Product Builder sub-weights (already normalised inside Bucket B to [0, 1])
+  product_builder_sub:
+    product_ratio_weight:  0.35  # Time-weighted product-company career fraction
+    deploy_signal_weight:  0.30  # Production / scale deployment language density
+    shipper_ratio_weight:  0.20  # Shipper vs researcher vocabulary ratio
+    ownership_weight:      0.15  # End-to-end ownership / startup language
+
+  # Softened hard cap: if zero retrieval + zero vector_db + zero sys_experience,
+  # cap must_have_raw at this fraction before normalisation
+  no_retrieval_cap: 0.50
+
+  # Assessment bonus — added to Bucket A scores when skill has high assessment score
+  # Applied before normalization in features.py
+  assessment_bonus_threshold: 70    # assessment score >= this to trigger bonus
+  assessment_bonus_value:     0.5   # fractional bonus added to bucket A evidence value
+
+  # Cross-Encoder merge at Phase 4
+  cross_encoder_weight:   0.20   # CE score contribution (0.0 to disable)
+  handcrafted_weight:     0.80   # Handcrafted core score contribution (must + CE = 1.0)
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Career quality multipliers (applied inside career_quality_raw)
+# ---------------------------------------------------------------------------
+career_multipliers:
+  consulting_only_penalty:   0.40   # Entire career at consulting/services firms
+  research_only_penalty:     0.50   # No engineering titles; pure researcher
+  wrong_domain_penalty:      0.30   # CV/speech/robotics with no NLP/IR exposure
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Soft signals (Bucket B) multipliers
+# Applied as multipliers to the product_builder_score
+# ---------------------------------------------------------------------------
+product_builder_multipliers:
+  keyword_stuffer_multiplier:  0.50  # inferred_keyword_stuffer = 1
+  disqualifier_multiplier:     0.10  # explicit hard disqualifier (langchain-only, etc.)
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Behavioral reachability multipliers
+# Applied multiplicatively on top of the Phase 4 final score
+# ---------------------------------------------------------------------------
+behavioral:
+  # Inactivity multipliers
+  inactive_heavy_days:   540   # > this many days → heavy penalty
+  inactive_heavy_mult:   0.60
+  inactive_moderate_days: 270  # > this many days → moderate penalty
+  inactive_moderate_mult: 0.75
+
+  # Open-to-work flag
+  not_open_mult: 0.85          # Candidate is not flagged as open to work
+
+  # Recruiter response rate
+  low_response_rate_threshold: 0.10  # < this → penalty
+  low_response_mult: 0.90
+
+  # Notice period modifiers
+  notice_ideal_days: 30        # <= this → no penalty
+  notice_mild_days:  60        # <= this → mild penalty
+  notice_moderate_days: 90     # <= this → moderate penalty
+  notice_ideal_mult:    1.00
+  notice_mild_mult:     0.95
+  notice_moderate_mult: 0.90
+  notice_bad_mult:      0.75   # > notice_moderate_days
+
+  # Location modifiers
+  location_pune_noida_mult:     1.00
+  location_welcome_cities_mult: 1.00  # hyderabad, mumbai (with relocation)
+  location_welcome_no_reloc:    0.98
+  location_india_adjacent_mult: 0.98  # bangalore, chennai, etc. (with relocation)
+  location_india_adjacent_no_reloc: 0.95
+  location_india_willing_mult:  0.95
+  location_india_no_reloc_mult: 0.92
+  location_abroad_willing_mult: 0.90
+  location_abroad_no_reloc_mult: 0.85
+
+  # Honeypot kill switch (applied if is_honeypot == True)
+  honeypot_multiplier: 0.01   # Forces score to ≤ 1.0 on 100.0 scale (below all real candidates)
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Social proof additive boosts
+# These are additive points on the 100.0 score scale (not multipliers).
+# ---------------------------------------------------------------------------
+social_proof:
+  github_threshold:    60    # github_activity_score > this to trigger
+  github_boost:         4.0
+  saved_threshold:       5   # saved_by_recruiters_30d > this
+  saved_boost:           3.0
+  offer_accept_threshold: 0.70  # offer_acceptance_rate > this (sentinel -1 safely fails)
+  offer_accept_boost:    3.0
+  platform_active_boost: 2.0   # applications_submitted_30d > 0 AND open_to_work_flag
+  social_proof_max:     12.0   # Total cap on additive boosts
+
+# ---------------------------------------------------------------------------
+# Phase 2 — RRF retrieval configuration
+# ---------------------------------------------------------------------------
+retrieval:
+  rrf_k: 60              # RRF denominator constant (standard = 60)
+  runtime_top_k: 3000    # How many candidates to pass from retrieval to Phase 3/4
+
+# ---------------------------------------------------------------------------
+# Phase 1f — Honeypot soft scoring weights (must sum to 1.0)
+# ---------------------------------------------------------------------------
+honeypot:
+  s1_multi_current_roles:  0.40   # Multiple simultaneous is_current=True
+  s2_yoe_mismatch:         0.25   # YoE mismatch > 24 months buffer
+  s3_skills_no_career:     0.20   # All AI skills in skills[], none in career descriptions
+  s4_max_assessment_fail:  0.15   # Expert/advanced skill with assessment score < 40
+  suspicious_threshold:    0.70   # honeypot_score > this → suspicious_flag = True
+
+# ---------------------------------------------------------------------------
+# Version tracking
+# ---------------------------------------------------------------------------
+version: "1.0.0"
