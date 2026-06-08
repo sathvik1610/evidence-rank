@@ -2,7 +2,7 @@
 
 ### 4.1 What this phase does
 
-Runs **once offline**, no time constraint. `src/jd_intelligence.py` parses `metadata/JD_contract.yaml` and `Resources/job_description.txt`, generates **3 natural-language JD query strings** and encodes them via BGE-M3 into:
+Runs **once offline**, no time constraint. `src/jd_intelligence.py` parses `metadata/JD_contract.yaml` and `job_description.txt`, generates **3 natural-language JD query strings** and encodes them via BGE-M3 into:
 - 3 dense `.npy` vectors (for FAISS search)
 - 1 learned-sparse `.npz` CSR query vector (for dot-product sparse retrieval)
 
@@ -93,7 +93,7 @@ query_sparse_csr = scipy.sparse.csr_matrix(
     (vals, (rows, cols)),
     shape=(len(sparse_dicts), vocab_size)
 )
-scipy.sparse.save_npz("artifacts/jd_sparse_query.npz", query_sparse_csr)
+scipy.sparse.save_npz("artifacts/jd_sparse_queries.npz", query_sparse_csr)
 print(f"Phase 0 complete. vocab_size={vocab_size}, query_sparse shape={query_sparse_csr.shape}")
 ```
 

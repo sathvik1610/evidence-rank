@@ -4,7 +4,7 @@
 **Project:** Redrob Hackathon — Intelligent Candidate Discovery & Ranking Challenge  
 **Role Being Ranked For:** Senior AI Engineer, Founding Team, Redrob AI  
 **Dataset:** 100,000 candidates in `candidates.jsonl` or `candidates.jsonl.gz`  
-**Output:** `submission.csv` — top 100 candidates, ranked best-fit first  
+**Output:** `team_BuriBuri.csv` — top 100 candidates, ranked best-fit first  
 **Hard Constraints:** 5-minute wall-clock execution (ranking step only), CPU-only, 16 GB RAM, no network calls during ranking
 
 ---

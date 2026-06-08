@@ -35,7 +35,7 @@ Sample 10 rows from across ranks (not just top). Check:
 ### 11.5 Pre-submission checklist
 
 **File format:**
-- [ ] Submission filename is `BuriBuri.csv` (registered team participant ID + `.csv` extension per spec §2)
+- [ ] Submission filename is `team_BuriBuri.csv` (registered team participant ID + `.csv` extension per spec)
 - [ ] Encoding is UTF-8
 - [ ] Exactly 100 rows of data plus 1 header row
 - [ ] Column order is exactly: `candidate_id,rank,score,reasoning`
@@ -58,7 +58,7 @@ Sample 10 rows from across ranks (not just top). Check:
 **Repo & sandbox:**
 - [ ] Sandbox (HF Spaces / Gradio) accepts ≤100 candidates and ranks them end-to-end under 5 min on CPU
 - [ ] `submission_metadata.yaml` complete at repo root
-- [ ] `README.md` has exact reproduce command: `python rank.py --candidates ./candidates.jsonl --out ./submission.csv`
+- [ ] `README.md` has exact reproduce command: `python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv`
 - [ ] Git history shows real iteration (at least 8 commits across phases; no single "Add everything" commit)
 
 **Portal metadata (ready before upload — spec §10.2):**
@@ -133,7 +133,7 @@ To prevent code modification during final validation and parameter tuning, the i
 | Dense embedding | `BAAI/bge-m3` | 570 MB | Dense + sparse in one model. CPU ~2ms/doc. Offline only. |
 | BM25 | `rank_bm25` | — | Pure Python. Built at precompute time, pickled to disk. Offline only. |
 | Vector index | `faiss-cpu` `IndexFlatIP` | ~300 MB | Exact search on 100K. Built offline; not loaded at rank time. |
-| Cross-encoder | `BAAI/bge-reranker-v2-m3` | 130 MB | Applied to top 300 offline. Scores saved to parquet. Offline only. |
+| Cross-encoder | `BAAI/bge-reranker-v2-m3` | 130 MB | Applied offline to the configured retrieval pool, currently 15,000 candidates. Scores saved to parquet. Offline only. |
 | Feature extraction | `regex` + phrase dictionaries | — | Pure Python pattern matching. No NLP library dependency. Both offline and rank time. |
 | Reason generation | Pure Python | — | String templates + evidence dict loaded from parquet. Rank time only. |
 
@@ -181,48 +181,47 @@ Total installed dependency size (offline + runtime + model artifacts) must stay 
 ```
 preprocess.py  (run once offline, no time limit)
     │
-    ├── Phase 0: JD parse → artifacts/jd_*.json / jd_*_vector.npy
+    ├── Phase 0: JD parse → artifacts/jd_config.json / jd_*.npy / jd_sparse_queries.npz
     ├── Phase 1: Embed 100K candidates → artifacts/faiss_index.bin
     │                                 → artifacts/bm25_index.pkl
     │                                 → artifacts/candidate_ids.json
     │                                 → artifacts/candidate_flags.parquet
     │                                 → artifacts/run_metadata.json  (reference_date = max last_active_date)
-    ├── Phase 1d: RRF retrieval (FAISS + BM25 → RRF) → artifacts/retrieval_scores.parquet  [top 5,000]
-    ├── Phase 1c: Feature extraction (Bucket A/B/C on top 5,000) → artifacts/candidate_features.parquet
+    ├── Phase 1d: 6-way RRF retrieval (FAISS + sparse + BM25 + exact recall) → artifacts/retrieval_scores.parquet  [top 15,000]
+    ├── Phase 1c: Feature extraction (Bucket A/B/C on widened pool) → artifacts/candidate_features.parquet
     │            Preliminary core score computed here to rank candidates for CE selection
-    └── Phase 1b: Cross-encoder top 500 (by preliminary core score) → artifacts/cross_encoder_scores.parquet
+    └── Phase 1e: Cross-encoder configured pool (currently 15,000) → artifacts/cross_encoder_scores.parquet
 
 rank.py  (evaluation machine, ≤ 5 minutes wall clock)
     │
-    ├── Load artifacts/retrieval_scores.parquet      → top 5000 candidates (sliced to top 3,000 at runtime)
+    ├── Load artifacts/retrieval_scores.parquet      → top 15,000 candidates (sliced to runtime_top_k)
     ├── Load artifacts/candidate_features.parquet    → Bucket A/B/C ready
-    ├── Load artifacts/cross_encoder_scores.parquet  → CE scores ready (top 500 precomputed)
+    ├── Load artifacts/cross_encoder_scores.parquet  → CE scores ready for configured pool
     ├── Load artifacts/run_metadata.json             → reference_date
-    │   reference_date = max(stored_date, max(candidates last_active_date))
-    │   (guards against time-drift if sandbox receives newer candidates)
-    ├── Phase 4: Weighted score + CE merge → top 200–300
+    │   reference_date = stored reference_date, or 2026-06-01 fallback
+    ├── Phase 4: Weighted score + CE merge → top 500
     ├── Phase 5: Behavioral multipliers → top 100
-    └── Phase 6: Reason generation → submission.csv
+    └── Phase 6: Reason generation → team_BuriBuri.csv
 ```
 
-**Dataset assumption:** `rank.py` expects precomputed artifacts for the official competition dataset. If `artifacts/retrieval_scores.parquet` is not found, it logs an error to stderr and exits. Runtime embedding generation is not supported.
+**Dataset assumption:** `rank.py` expects precomputed artifacts for the official competition dataset. If `artifacts/candidate_features.parquet` is not found, it exits and asks for preprocessing. If `artifacts/retrieval_scores.parquet` is missing, sample-style runs can still score the available precomputed features, but the full competition path should have retrieval scores present. Runtime embedding generation is not supported.
 
-**Reference date guard:** `rank.py` reads `reference_date` from `artifacts/run_metadata.json` but recalculates it as `max(stored_reference_date, max(new_candidates_last_active_date))` to prevent negative inactivity values if a sandbox payload contains candidates with dates newer than the precompute run.
+**Reference date guard:** `rank.py` reads `reference_date` from `artifacts/run_metadata.json` when present and falls back to `2026-06-01` otherwise. It does not recompute embeddings or rebuild date metadata at runtime.
 
 ---
 
-### 15.1 Runtime Performance Logging
+### 15.1 Runtime Logging
 
-To ensure rapid debugging and timing verification on the evaluation machine, `rank.py` must track and log the following metrics to standard error (stderr):
-- **Phase 2 (Retrieval) Time:** Parquet load + filter time.
-- **Phase 3 (Feature Load) Time:** Parquet join time.
-- **Phase 4 (Scoring + CE Merge) Time:** Weighted formula + parquet join.
-- **Phase 5 & 6 (Behavioral + Reasoning) Time:** Wall-clock duration.
-- **Total Runtime:** Overall ranking process runtime.
-- **Retrieved Count:** Number of candidates after Phase 2 filter.
-- **Peak Memory Usage:** Process peak RSS memory footprint.
+The current `rank.py` logs the major execution checkpoints to stdout:
+- number of feature rows loaded after filtering to the input candidate IDs
+- number of rows retained after the Phase 2 RRF cutoff
+- top-500 Phase 4 slice size
+- Phase 5 and Phase 6 start messages
+- output CSV path
+- debug trace path
+- total runtime in seconds
 
-The offline precompute (`preprocess.py`) has no time constraint and may use any compute needed.
+It does not currently log per-phase timings or peak RSS memory. Add those only if needed for a stricter profiling report.
 
 ---
 
@@ -233,8 +232,9 @@ The offline precompute (`preprocess.py`) has no time constraint and may use any 
 ```json
 {
   "reference_date": "2026-06-05",
-  "total_candidates_processed": 100000,
-  "faiss_index_size": 100000
+  "run_time": "2026-06-05T12:34:56.000000Z",
+  "candidate_count": 100000,
+  "skip_embed": false
 }
 ```
 `rank.py` uses `reference_date` to compute days inactive.

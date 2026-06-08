@@ -6,7 +6,7 @@ Phase 6 runs after final scores and ranks are assigned. It must never affect can
 
 The implementation is `src/explainer.py`. It generates short, evidence-safe explanations for the final CSV and a debug trace in `artifacts/ranking_debug.csv`.
 
-Basic profile facts (`current_title`, `current_company`, `years_of_experience`, and location) are copied into `candidate_features.parquet` during Phase 3. The explainer uses these copied fields directly; it does not infer facts from model output.
+Basic profile facts (`current_title`, `current_company`, `years_of_experience`, location, country, and behavior fields) are copied into `candidate_features.parquet` during Phase 3. The explainer uses these copied fields directly; it does not infer facts from model output.
 
 ### 10.2 Evidence Domains
 
@@ -54,11 +54,17 @@ This is only explanatory framing. The 90-day score itself is computed in Phase 3
 - research-only background
 - wrong-domain background
 - LangChain-wrapper-only risk
+- isolated template risk
+- low career IR density with adjacent-career evidence
+- target-skill or generic skill-duration contradiction
 - consulting-heavy career
 - code-stopped seniority risk
 - title velocity
+- no relocation outside preferred/welcome city bands
 
 For ranks above 30, present a concern when one exists. For ranks above 70, acknowledge technical-depth gaps even when no specific flag exists.
+
+For top-ranked candidates with sustained `career_ir_density`, the support sentence may explicitly say the career pattern shows search/ranking/evaluation ownership. This is only emitted from extracted feature values; the explainer still does not infer or invent evidence.
 
 ### 10.6 Debug Output
 

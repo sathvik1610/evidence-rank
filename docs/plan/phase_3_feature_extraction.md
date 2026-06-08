@@ -46,8 +46,17 @@ Bucket B computes:
 - `writing_signal`
 - `ownership_signal`
 - `product_builder_score`
+- `career_ir_density`
+- `career_eval_density`
+- `adjacent_career_ratio`
+- `core_ir_role_count`
+- `eval_role_count`
+- `adjacent_role_count`
+- `isolated_template_risk`
 
 `product_builder_score` is a first-class JD signal because the role wants a product engineer who has shipped ranking/search/recommendation systems, not a pure researcher or generic AI wrapper user.
+
+Career IR density was added after manual audits found repeated synthetic templates in otherwise adjacent AI careers. A single strong ranking/RAG role is useful evidence, but it should not dominate the top 10 when most of the career is chatbot support, churn, MLOps, CV/speech, or other adjacent work. Product matching phrases such as "matching layer," "search and discovery," "learned relevance," and "personalization infrastructure" count toward sustained product-IR density.
 
 Consulting-only, pure-research, and wrong-domain penalties are read from the YAML contract multipliers.
 

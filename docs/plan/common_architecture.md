@@ -56,7 +56,7 @@ The system executes in two strictly separated environments:
 
 **Runtime Ranking Engine (`rank.py`, must complete in under 5 minutes on CPU, no network):**
 - Input guard: read `candidate_id` values from `--candidates` and filter precomputed features to that exact input file. If there is no overlap, exit and require a fresh preprocess run.
-- Phase 2: When `artifacts/retrieval_scores.parquet` exists, join retrieval scores and filter to the configured runtime pool (10,000 on the high-recall branch). Sample `--skip-embed` runs still score all sample candidates.
+- Phase 2: When `artifacts/retrieval_scores.parquet` exists, join retrieval scores and filter to the configured runtime pool from `weights.yaml` (`retrieval.runtime_top_k`, currently 10,000). Sample `--skip-embed` runs still score all sample candidates.
 - Phase 3: Load precomputed candidate features from parquet (< 5s)
 - Phase 4: Compute core score, merge precomputed cross-encoder scores, then slice top 500 by blended Phase 4 score (< 30s)
 - Phase 5: Behavioral re-ranking + penalization → top 100 (< 10s)
@@ -72,7 +72,7 @@ The system executes in two strictly separated environments:
 
 This system assumes the official competition dataset (`candidates.jsonl` as distributed in the hackathon bundle). Runtime embedding generation is **intentionally unsupported** — the competition explicitly permits offline precomputation, and adding fallback runtime ML inference would force heavy dependencies into `rank.py`.
 
-**Small-file sample path:** Run `preprocess.py --sample --skip-embed` first. This creates flags and features for `Resources/sample_candidates.json` without dense embeddings, FAISS, BM25, RRF, or cross-encoder artifacts. Then `rank.py --candidates Resources/sample_candidates.json --out submission.csv` ranks those precomputed sample features. If feature artifacts are missing, `rank.py` exits and asks for preprocess; it does not recompute Phase 3 at runtime.
+**Small-file sample path:** Run `preprocess.py --sample --skip-embed` first. This creates flags and features for `sample_candidates.json` without dense embeddings, FAISS, BM25, RRF, or cross-encoder artifacts. Then `rank.py --candidates sample_candidates.json --out sample_submission.csv` ranks those precomputed sample features. If feature artifacts are missing, `rank.py` exits and asks for preprocess; it does not recompute Phase 3 at runtime.
 
 **High-recall experiment path:** Run `preprocess.py --candidates ./candidates.jsonl --skip-embed` after changing exact recall, feature extraction, honeypot logic, or JD extraction terms. This reuses existing BGE/FAISS/BM25 artifacts, fuses the saved RRF list with the CPU-cheap exact recall lane, and regenerates features for the widened pool. Full GPU preprocessing is needed only when candidate data, embedding model, dense/sparse query text, or index construction changes.
 
@@ -137,7 +137,7 @@ Process:
 4. Score shortlisted candidates
 5. Apply behavioral adjustments
 6. Generate explanations
-7. Output submission.csv
+7. Output `team_BuriBuri.csv` or the `--out` path passed to `rank.py`
 
 Constraints:
 
@@ -171,7 +171,6 @@ Stage B should function as a lightweight ranking system operating primarily on p
 ├── src/
 │   ├── __init__.py
 │   ├── jd_intelligence.py          # Phase 0: YAML/JD-derived query, HyDE, and BM25 keyword generation
-│   ├── retriever.py               # Phase 2: 5-way RRF (FAISS + CSR dot-product + BM25)
 │   ├── features.py                # Phase 3: Bucket A/B/C extraction
 │   ├── scorer.py                  # Phase 4: Weighted scoring formula
 │   ├── reranker.py                # Phase 4: Cross-encoder reranking
@@ -204,7 +203,7 @@ Stage B should function as a lightweight ranking system operating primarily on p
 
 `preprocess.py` — Offline pipeline runner. Phase 0 JD intelligence, Phase 1 corpus embedding + sparse CSR matrix build, FAISS index, BM25 index, honeypot flagging, ghost pre-filtering, 6-way high-recall RRF retrieval scoring, feature extraction, cross-encoder inference. No time constraint. GPU-adaptive for embedding steps.
 
-`src/jd_intelligence.py` — Reads `metadata/JD_contract.yaml` and `Resources/job_description.txt`, then generates `jd_config.json`, BM25 keywords, dense query text, HyDE-style query text, and the cross-encoder JD query. This is the single source for Phase 0 retrieval text; do not reintroduce hardcoded JD/HyDE strings in `preprocess.py`.
+`src/jd_intelligence.py` — Reads `metadata/JD_contract.yaml` and `job_description.txt`, then generates `jd_config.json`, BM25 keywords, dense query text, HyDE-style query text, and the cross-encoder JD query. This is the single source for Phase 0 retrieval text; do not reintroduce hardcoded JD/HyDE strings in `preprocess.py`.
 
 `constants.py` — Single source of truth for every artifact path string. Both `preprocess.py` and `rank.py` (and all modules under `src/`) import paths exclusively from here. Renaming any artifact requires one edit in one file. See §3.1.
 
@@ -273,7 +272,7 @@ from constants import CANDIDATE_SPARSE_PATH, JD_SPARSE_PATH
 scipy.sparse.save_npz(CANDIDATE_SPARSE_PATH, candidate_csr)
 scipy.sparse.save_npz(JD_SPARSE_PATH, query_csr)
 
-# src/retriever.py (read side)
+# preprocess.py (read side for retrieval fusion)
 from constants import CANDIDATE_SPARSE_PATH, JD_SPARSE_PATH, FAISS_INDEX_PATH
 candidate_csr = scipy.sparse.load_npz(CANDIDATE_SPARSE_PATH)
 jd_sparse     = scipy.sparse.load_npz(JD_SPARSE_PATH)

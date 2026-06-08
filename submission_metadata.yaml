@@ -1,6 +1,5 @@
 # Redrob Hackathon — Submission Metadata
 # Team: BuriBuri
-# Generated from submission_metadata_template.yaml in Resources/
 
 # ============================================================================
 # Team identity
@@ -8,75 +7,75 @@
 team_name: "BuriBuri"
 
 primary_contact:
-  name: "FILL_IN_NAME"
-  email: "FILL_IN_EMAIL"
-  phone: "FILL_IN_PHONE"
+  name: "Sathvik Pilyanam"
+  email: "cs23b042@iittp.ac.in"
+  phone: "+91 93927 72069"
 
 team_members:
-  - name: "FILL_IN_MEMBER_1"
-    email: "FILL_IN_EMAIL_1"
-    role: "ML Engineer"
-  # Add more members as needed
-
+  - name: "Sathvik Pilyanam"
+    email: "cs23b042@iittp.ac.in"
+    role: "Student"
+  - name: "Pranathi Mandadi"
+    email: "cs23b030@iittp.ac.in"
+    role: "Student"
 # ============================================================================
 # Code and reproducibility
 # ============================================================================
 github_repo: "https://github.com/sathvik1610/evidence-rank"
 
-sandbox_link: "FILL_IN_HUGGINGFACE_SPACE_URL"
-# Will be a HuggingFace Space running app.py (Gradio sandbox)
-# Accepts <= 100 candidates, runs ranking end-to-end under 5 min on CPU
+sandbox_link: "https://huggingface.co/spaces/sathvik1610/evidence-rank"
 
-reproduce_command: "python rank.py --candidates ./Resources/candidates.jsonl --out ./submission.csv"
-# Precompute (run once before above command):
-# python preprocess.py --candidates ./Resources/candidates.jsonl
+reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv"
 
 # ============================================================================
 # Compute environment
 # ============================================================================
 compute:
-  platform: "FILL_IN_PLATFORM"             # e.g. "Windows 11, Intel i7"
+  platform: "Windows local verification"
   cpu_cores: 8
   ram_gb: 16
-  python_version: "3.11"
-  os: "FILL_IN_OS"
-  uses_gpu_for_inference: false            # MUST be false for ranking step
-  has_network_during_ranking: false        # MUST be false — no API calls during ranking
-  pre_computation_required: true           # preprocess.py generates FAISS + BM25 + feature artifacts
-  pre_computation_time_minutes: 60         # approximate (GPU Colab); may vary
+  python_version: "3.12"
+  os: "Windows"
+  uses_gpu_for_inference: false
+  has_network_during_ranking: false
+  pre_computation_required: true
+  pre_computation_time_minutes: 60
 
 # ============================================================================
 # AI tools declaration
 # ============================================================================
 ai_tools_used:
-  - "Claude"    # Architecture discussion, code review, planning
-  - "Gemini"    # Architecture discussion, code review, planning
+  - "Gemini"
+  - "Claude"
+  - "Antigravity IDE"
+  - "Codex"
 
 ai_usage_summary: |
-  Used Claude and Gemini for architecture discussions, planning phases,
-  code review, and resolving design decisions before implementation.
-  All engineering logic, phase design, weights, and implementation decisions
-  were made by the team. No candidate data was fed to any LLM.
+  Used Antigravity IDE, Claude, and Gemini for architecture discussions, planning phases,
+  code review, and running deep-dive manual audits on candidate rankings. 
+  Used Codex to help tune behavioral modifier weights and penalty combinations based on manual evaluation.
+  All core engineering logic, phase design, and implementation decisions were made by the team.
+  No candidate data was fed to any external LLM APIs; the reasoning generation is strictly factual and rule-based.
 
 # ============================================================================
-# Approach summary (≤200 words — recommended for Stage 4 review)
+# Approach summary
 # ============================================================================
 methodology_summary: |
   Two-stage pipeline: offline precompute (no time limit) + runtime ranking (≤5 min CPU).
 
   Offline: BAAI/bge-m3 encodes 100K candidate profiles into dense FAISS index and
   learned-sparse CSR matrix. Three JD query vectors (skills + two HyDE personas) enable
-  5-way Reciprocal Rank Fusion (RRF) over FAISS, CSR dot-product, and BM25.
-  Top-5000 RRF candidates get rule-based feature extraction (Bucket A: IR/search skills,
+  high-recall Reciprocal Rank Fusion (RRF) over FAISS, CSR dot-product, BM25,
+  and exact/regex rescue signals. Top retrieval candidates get rule-based feature extraction (Bucket A: IR/search skills,
   Bucket B: career quality + product company ratio + shipper signals, Bucket C: gaps).
-  bge-reranker-v2-m3 cross-encoder scores all 5000 offline.
+  bge-reranker-v2-m3 cross-encoder scores the widened pool offline.
   Honeypot and ghost detection uses structural contradiction rules (impossible timelines,
-  tech claimed before release dates, zero-duration expert claims).
+  repeated copied role descriptions, zero-duration expert claims) using only candidate data.
 
   Runtime: Parquet artifacts load in <5s. Weighted scoring formula (55% must-haves,
   20% product-builder, 15% career quality, 10% nice-to-haves) produces a 0-100 core score.
-  Cross-encoder (20% weight) refines top candidates. Behavioral multipliers apply
-  reachability, notice-period, and location adjustments. Reason generator assembles
+  Cross-encoder (35% weight) refines top candidates. Behavioral multipliers apply
+  reachability, strict notice-period penalties, and location adjustments. Reason generator assembles
   evidence-grounded sentences from precomputed facts — no hallucinations.
 
 # ============================================================================
@@ -87,4 +86,4 @@ declarations:
   code_is_original_work: true
   no_collusion: true
   honeypot_check_done: true
-  reproduction_tested: false   # Update to true before final submission
+  reproduction_tested: true

@@ -2,7 +2,7 @@
 > **Project:** Redrob Hackathon — Intelligent Candidate Discovery & Ranking Engine  
 > **Version:** 3.3.0 | Source: [plan.md](file:///d:/GitHub/evidence-rank/plan.md) + [variables.md](file:///d:/GitHub/evidence-rank/variables.md)
 
-> **Current-status note:** This deep dive preserves a broader architecture narrative and some historical examples. For current numeric values, pool sizes, behavioral signal coverage, and cross-encoder weights, use `README.md`, `docs/reference/variables.md`, `weights.yaml`, and `constants.py`.
+> **Current-status note:** This deep dive preserves a broader architecture narrative and some historical examples; it is not the source of truth for current numeric values. For current pool sizes, behavioral signal coverage, artifact names, and cross-encoder weights, use `README.md`, `docs/reference/variables.md`, `weights.yaml`, and `constants.py`.
 
 ---
 
@@ -15,7 +15,7 @@
 * **Why It Exists:** Naive keyword search fails — a candidate who built a recommendation engine at Flipkart is a great fit even if they never say "RAG" or "Pinecone." Equally, a candidate with every AI keyword whose entire career is at TCS is not a fit. This system reasons about the *gap between what the JD says and what the JD means.*
 * **The Hard Constraint:** The ranking step must finish in **under 5 minutes** on a standard CPU with no internet. This forces all heavy ML work (embeddings, cross-encoder inference) to run offline beforehand.
 * **The Key Insight:** Evidence beats claims. A skill listed in the "Skills" section scores 1/3. That same skill appearing in a career description *with production/scale signals* scores 3/3. The system rewards proof over assertion.
-* **What Makes It Different:** It uses *two* JD vectors (technical vocabulary + ideal-candidate narrative), a 3-level evidence scoring system (skills mention → career project → production deployment), a Consistency Score to detect keyword stuffers, and soft multipliers with floors (not hard cutoffs) for behavioral and logistical signals — mirroring how a real recruiter thinks.
+* **What Makes It Different:** It uses three JD dense vectors plus learned-sparse and lexical recall signals, a 3-level evidence scoring system (skills mention → career project → production deployment), a Consistency Score to detect keyword stuffers, and soft multipliers with floors (not hard cutoffs) for behavioral and logistical signals — mirroring how a real recruiter thinks.
 * **The Hackathon Scoring:** NDCG@10 = 50% of the score. Your top 10 picks matter more than picks 11–100 combined.
 
 ---
@@ -34,10 +34,10 @@
 |---|---|
 | **Purpose** | Decode the job description into machine-readable rules, embeddings, and keywords |
 | **Input** | Raw JD text for "Senior AI Engineer, Founding Team, Redrob AI" |
-| **Processing** | Parse JD into 5 typed buckets (must-haves, nice-to-haves, hard disqualifiers, soft negatives, logistics); embed it into **two** semantic vectors using BGE-M3; build BM25 keyword list |
-| **Output** | `jd_config.json`, `jd_skills_vector.npy`, `jd_ideal_vector.npy`, `jd_keywords.json` |
+| **Processing** | Parse JD into typed buckets; build three BGE-M3 dense query vectors, learned-sparse query rows, and BM25 keywords |
+| **Output** | `jd_config.json`, `jd_v1_skills.npy`, `jd_hyde_recsys.npy`, `jd_hyde_eval.npy`, `jd_sparse_queries.npz`, `jd_keywords.json` |
 
-**Why two vectors?** The skills-focused vector catches technically-worded profiles ("FAISS, NDCG, hybrid search"). The ideal-candidate vector catches plain-language profiles ("built a recommendation system at a product company"). Each type of candidate is invisible to the other vector alone.
+**Why multiple vectors?** The skills-focused vector catches technically-worded profiles ("FAISS, NDCG, hybrid search"), while the HyDE-style recsys and eval vectors catch product ranking and measurement narratives that may not share the same keywords.
 
 ---
 
@@ -51,9 +51,9 @@
 | **Output** | `faiss_index.bin`, `bm25_index.pkl`, `candidate_ids.json`, `candidate_texts.pkl`, `candidate_flags.parquet` |
 
 Also runs sub-phases offline:
-- **Phase 1d:** RRF retrieval → `retrieval_scores.parquet`
-- **Phase 1c:** Feature extraction on top 5,000 → `candidate_features.parquet`
-- **Phase 1b:** Cross-encoder on top 500 → `cross_encoder_scores.parquet`
+- **Phase 1d:** 6-way RRF retrieval → `retrieval_scores.parquet` (top 15,000)
+- **Phase 1c:** Feature extraction on the widened pool → `candidate_features.parquet`
+- **Phase 1e:** Cross-encoder on the configured widened pool → `cross_encoder_scores.parquet`
 
 ---
 
@@ -61,10 +61,10 @@ Also runs sub-phases offline:
 
 | | |
 |---|---|
-| **Purpose** | Narrow 100K candidates down to 3,000–5,000 worth scoring in detail |
+| **Purpose** | Narrow 100K candidates down to the configured runtime retrieval pool worth scoring in detail |
 | **Input** | `retrieval_scores.parquet` (precomputed RRF scores) |
-| **Processing** | Load parquet → filter to top 5,000 by RRF score (no FAISS or BM25 calls at runtime) |
-| **Output** | List of 3,000–5,000 candidate IDs with RRF scores |
+| **Processing** | Load parquet → filter by configured `retrieval.runtime_top_k` (no FAISS, BM25, regex corpus scan, or model inference at runtime) |
+| **Output** | Runtime candidate pool with RRF scores |
 
 *The actual FAISS + BM25 + RRF computation happened offline (Phase 1d). Runtime Phase 2 is a pure pandas read.*
 
@@ -87,8 +87,8 @@ Also runs sub-phases offline:
 |---|---|
 | **Purpose** | Compute a technical fit score and refine the top 500 with semantic cross-encoder judgment |
 | **Input** | Bucket A/B/C features, `cross_encoder_scores.parquet` |
-| **Processing** | Apply 4-component weighted formula (Must-Have 55% + Nice-to-Have 10% + Career Quality 15% + Product Builder 20%) → merge precomputed cross-encoder scores (80% handcrafted + 20% CE) |
-| **Output** | `final_phase4_score` per candidate; narrowed to top 200–300 |
+| **Processing** | Apply 4-component weighted formula (Must-Have 55% + Nice-to-Have 10% + Career Quality 15% + Product Builder 20%) → merge precomputed cross-encoder scores (65% handcrafted + 35% CE) |
+| **Output** | `final_phase4_score` per candidate; narrowed to top 500 before behavioral scoring |
 
 ---
 
@@ -315,9 +315,9 @@ The atomic unit. Everything flows from this.
 | File | What It Stores | Why It Matters |
 |---|---|---|
 | `candidate_flags.parquet` | `is_honeypot`, `is_ghost`, `product_ratio`, `consulting_only`, `research_only`, `wrong_domain` per candidate | Hard exclusions + career quality inputs |
-| `retrieval_scores.parquet` | `candidate_id` + `rrf_score` for top 5,000 | The gate into the full pipeline |
+| `retrieval_scores.parquet` | `candidate_id` + `rrf_score` for top 15,000 | The gate into the full pipeline |
 | `candidate_features.parquet` | All Bucket A/B/C values + snippets + behavioral + consistency score | Everything Phase 4/5/6 needs |
-| `cross_encoder_scores.parquet` | `candidate_id` + `cross_encoder_score` for top 500 | Semantic tiebreaker at Phase 4 |
+| `cross_encoder_scores.parquet` | `candidate_id` + `cross_encoder_score` for the configured CE pool | Semantic tiebreaker at Phase 4 |
 
 ---
 
@@ -329,8 +329,10 @@ JD Text (one-time input)
      ▼
 [Phase 0: JD Intelligence] ──────────────────────────────────────────── OFFLINE
      │  BGE-M3 embedder
-     │  → jd_skills_vector.npy
-     │  → jd_ideal_vector.npy
+     │  → jd_v1_skills.npy
+     │  → jd_hyde_recsys.npy
+     │  → jd_hyde_eval.npy
+     │  → jd_sparse_queries.npz
      │  → jd_keywords.json
      │  → jd_config.json
      │
@@ -349,10 +351,8 @@ candidates.jsonl (100K profiles)
      │
      ▼
 [Phase 1d: RRF Retrieval] ────────────────────────────────────────────── OFFLINE
-     │  FAISS (skills vector) → top 2,000
-     │  FAISS (ideal vector)  → top 2,000
-     │  BM25 (keyword list)   → top 2,000
-     │  RRF fusion (k=60)     → top 3,000–5,000 pool
+     │  FAISS (3 JD vectors) + learned sparse + BM25 + exact recall
+     │  6-way RRF fusion (k=60) → top 15,000 pool
      │  → retrieval_scores.parquet
      │
      ▼
@@ -367,8 +367,8 @@ candidates.jsonl (100K profiles)
      │
      ▼
 [Phase 1b: Cross-Encoder Inference] ─────────────────────────────────── OFFLINE
-     │  bge-reranker-v2-m3 on top 500 candidates
-     │  ~2.5 min on CPU
+     │  bge-reranker-v2-m3 on configured CE pool
+     │  offline GPU recommended
      │  → cross_encoder_scores.parquet
      │
 ════════════════════════════════════════════════════════════════════════
@@ -377,8 +377,8 @@ candidates.jsonl (100K profiles)
      │
      ▼
 [Phase 2: Load Retrieval] ─────────────────────────────────────────── RUNTIME
-     │  pandas.read_parquet(retrieval_scores.parquet)
-     │  filter to top 5,000 by rrf_score
+     │  polars.read_parquet(retrieval_scores.parquet)
+     │  filter to retrieval.runtime_top_k by rrf_score
      │  ~5 seconds
      │
      ▼
@@ -624,25 +624,23 @@ All tunable via `weights.yaml` — **no Python code changes needed.** Edit `weig
 
 | File | Purpose | Why It Matters |
 |---|---|---|
-| [plan.md](file:///d:/GitHub/evidence-rank/plan.md) | Full production spec v3.3.0 — complete implementation blueprint | **The source of truth.** Every algorithm, formula, and threshold is defined here |
-| [variables.md](file:///d:/GitHub/evidence-rank/variables.md) | Authoritative weight & variable reference; contains the full `weights.yaml` config | **Tuning source of truth.** Every number in the system, its stage, type (×/+/HARD), and the `weights.yaml` key to change it |
+| `docs/reference/variables.md` | Current concise weight and variable reference | **Tuning reference.** Numeric authority still lives in `weights.yaml` and `constants.py` |
 | [README.md](file:///d:/GitHub/evidence-rank/README.md) | Human-readable system overview and submission guide | What judges and reviewers read first |
 | `weights.yaml` | Dynamic config file — all weights, multipliers, boosts, and thresholds | **Change any parameter here without touching Python code** |
 | `rank.py` | Runtime entry point — the actual competition submission script | Must finish ≤5 min; no heavy imports (`torch`, `faiss`, `flagembedding`) allowed |
 | `preprocess.py` | Offline pipeline runner — builds all artifacts | Runs once; may take 1–4 hours on CPU |
 | `app.py` | HuggingFace Spaces demo (Gradio) | BM25-only heuristic path; no ML models; judges can interact with it |
-| `src/retriever.py` | FAISS + BM25 + RRF fusion | At preprocess time: builds retrieval_scores.parquet. At rank time: loads it |
 | `src/features.py` | Regex-based Bucket A/B/C extraction | The core "evidence vs claims" intelligence — all pattern lists live here |
 | `src/scorer.py` | 4-component weighted formula (55/10/15/20) + CE merge | Phase 4 score — reads weights from `weights.yaml` |
-| `src/reranker.py` | Cross-encoder offline inference | Runs bge-reranker-v2-m3 on top 500 offline; loads at rank time |
+| `src/reranker.py` | Cross-encoder offline inference | Runs bge-reranker-v2-m3 on the configured widened pool offline; loads at rank time |
 | `src/behavioral.py` | Availability, notice, location, seniority, penalty multipliers + social boost | Phase 5 — reads all multipliers/thresholds from `weights.yaml` |
 | `src/explainer.py` | Reason generation with 90-day milestone framing | Phase 6 — zero LLM calls; pure string templates from evidence snippets |
 | `artifacts/candidate_features.parquet` | Precomputed Bucket A/B/C for all retrieved candidates | The single most important artifact — everything Phase 4/5/6 reads from here |
-| `artifacts/retrieval_scores.parquet` | RRF scores for top 5,000 | The gate into the scoring pipeline |
-| `artifacts/cross_encoder_scores.parquet` | Cross-encoder scores for top 500 | Semantic tiebreaker |
+| `artifacts/retrieval_scores.parquet` | RRF scores for top 15,000 | The gate into the scoring pipeline |
+| `artifacts/cross_encoder_scores.parquet` | Cross-encoder scores for configured pool | Semantic tiebreaker |
 | `artifacts/candidate_flags.parquet` | Honeypot/ghost/disqualifier flags | Hard exclusions — must be correct |
 | `artifacts/faiss_index.bin` | FAISS IndexFlatIP of all 100K profiles | Used offline only for retrieval |
-| `artifacts/jd_skills_vector.npy` + `jd_ideal_vector.npy` | Two JD embedding variants | Core of the dual-vector retrieval strategy |
+| `artifacts/jd_v1_skills.npy`, `jd_hyde_recsys.npy`, `jd_hyde_eval.npy`, `jd_sparse_queries.npz` | Current JD dense and sparse query artifacts | Core of the multi-signal retrieval strategy |
 | `metadata/validation_set.json` | 150–200 hand-labeled candidates | Used for offline quality checking — never used to overfit weights |
 | `submission_metadata.yaml` | Team metadata for submission portal | Required for submission — team name BuriBuri, contacts, methodology |
 
@@ -690,7 +688,7 @@ All tunable via `weights.yaml` — **no Python code changes needed.** Edit `weig
 
 This is a high RRF score — top 50 in the retrieved pool.
 
-**Arjun is in the top 5,000. He enters the pipeline.**
+**Arjun is in the widened retrieval pool. He enters the pipeline.**
 
 ---
 
@@ -783,11 +781,11 @@ career_quality_score = 0.15 / 0.15 = 1.0
 = 0.853
 ```
 
-**Cross-Encoder Score:** Arjun is in top 500 by preliminary score. CE sees "dense retrieval pipeline FAISS NDCG hybrid ranker" paired with JD → likely score ≈ 0.85
+**Cross-Encoder Score:** Arjun is in the configured CE pool. CE sees "dense retrieval pipeline FAISS NDCG hybrid ranker" paired with JD → likely score ≈ 0.85
 
 **Phase 4 Final:**
 ```
-0.80 × 0.853 + 0.20 × 0.85 = 0.682 + 0.170 = 0.852
+0.65 × 0.853 + 0.35 × 0.85 = 0.554 + 0.298 = 0.852
 ```
 
 ---

@@ -6,7 +6,7 @@
 
 **At rank time (`rank.py`):** Loads `retrieval_scores.parquet` (using Polars for memory safety and speed), filters to top N by RRF score, then applies core scoring. **No FAISS, BM25, regex corpus scan, or model inference happens at rank time.**
 
-**Retrieval pool size tuning:** Precompute saves the top 15,000 candidates to `retrieval_scores.parquet`. At runtime, this branch filters to top N = 10,000 via `weights.yaml` (`retrieval.runtime_top_k`). The wider pool is intentional: validation showed strong candidates can be lost before feature extraction, and those losses are unrecoverable later.
+**Retrieval pool size tuning:** Precompute saves the top 15,000 candidates to `retrieval_scores.parquet` (`constants.RRF_PRECOMPUTE_TOPK`). At runtime, this branch filters to top N from `weights.yaml` (`retrieval.runtime_top_k`, currently 10,000). The code has a structural fallback in `constants.RUNTIME_RETRIEVAL_TOPK`, but `weights.yaml` is the active tuning source when present. The wider pool is intentional: validation showed strong candidates can be lost before feature extraction, and those losses are unrecoverable later.
 
 Target rank-time cost: under 5 seconds on CPU.
 
@@ -19,16 +19,21 @@ import json
 
 index = faiss.read_index("artifacts/faiss_index.bin")
 all_ids = json.load(open("artifacts/candidate_ids.json"))
+k_search = min(len(all_ids), constants.RRF_PRECOMPUTE_TOPK)
 
-jd_skills_vec = np.load("artifacts/jd_skills_vector.npy").astype(np.float32).reshape(1, -1)
-jd_ideal_vec = np.load("artifacts/jd_ideal_vector.npy").astype(np.float32).reshape(1, -1)
+jd_skills_vec = np.load("artifacts/jd_v1_skills.npy").astype(np.float32).reshape(1, -1)
+jd_recsys_vec = np.load("artifacts/jd_hyde_recsys.npy").astype(np.float32).reshape(1, -1)
+jd_eval_vec = np.load("artifacts/jd_hyde_eval.npy").astype(np.float32).reshape(1, -1)
 
-# Search both JD vectors
-scores_skills, idx_skills = index.search(jd_skills_vec, k=2000)
-scores_ideal, idx_ideal = index.search(jd_ideal_vec, k=2000)
+# Search the three JD vectors. In code, k_search is min(candidate_count,
+# constants.RRF_PRECOMPUTE_TOPK), currently 15,000.
+scores_skills, idx_skills = index.search(jd_skills_vec, k=k_search)
+scores_recsys, idx_recsys = index.search(jd_recsys_vec, k=k_search)
+scores_eval, idx_eval = index.search(jd_eval_vec, k=k_search)
 
 dense_ids_skills = [all_ids[i] for i in idx_skills[0]]
-dense_ids_ideal = [all_ids[i] for i in idx_ideal[0]]
+dense_ids_recsys = [all_ids[i] for i in idx_recsys[0]]
+dense_ids_eval = [all_ids[i] for i in idx_eval[0]]
 ```
 
 ### 6.3 Sparse retrieval via BM25
@@ -44,19 +49,18 @@ keywords = json.load(open("artifacts/jd_keywords.json"))
 query_tokens = " ".join(keywords).lower().split()
 
 scores_bm25 = bm25.get_scores(query_tokens)
-top_bm25_idx = np.argsort(scores_bm25)[::-1][:2000]
+top_bm25_idx = np.argsort(scores_bm25)[::-1][:k_search]
 sparse_ids = [all_ids[i] for i in top_bm25_idx]
 ```
 
-### 6.4 Soft activity boost
+### 6.4 Activity Handling
 
-Before RRF, lightly boost candidates who are actively seeking. This prevents active candidates from being buried behind stale ones when ranks are equal.
+The current code does not apply an activity boost inside retrieval. Activity and reachability are handled later in Phase 5 by `src/behavioral.py`, after technical retrieval and scoring.
 
 ```python
-# Load lightweight signals from flags parquet
-# For candidates in the top pools: if open_to_work OR last_active < 90d,
-# artificially boost their retrieval rank by 200 positions (within the retrieval step only).
-# This is a soft nudge, not a hard filter.
+# No retrieval-time activity boost is applied.
+# See src/behavioral.py for last_active_date, open_to_work_flag,
+# recruiter_response_rate, applications_submitted_30d, and related modifiers.
 ```
 
 ### 6.5 Six-Way Reciprocal Rank Fusion
@@ -86,6 +90,7 @@ from rank_bm25 import BM25Okapi
 index = faiss.read_index("artifacts/faiss_index.bin")
 all_ids = json.load(open("artifacts/candidate_ids.json"))
 candidate_sparse_csr = scipy.sparse.load_npz("artifacts/candidate_sparse_matrix.npz")
+k_search = min(len(all_ids), constants.RRF_PRECOMPUTE_TOPK)
 
 # Load 3 dense JD query vectors
 jd_v1 = np.load("artifacts/jd_v1_skills.npy").astype(np.float32).reshape(1, -1)
@@ -93,12 +98,12 @@ jd_recsys = np.load("artifacts/jd_hyde_recsys.npy").astype(np.float32).reshape(1
 jd_eval = np.load("artifacts/jd_hyde_eval.npy").astype(np.float32).reshape(1, -1)
 
 # Load sparse query CSR (row 0 = v1_skills, row 1 = recsys, row 2 = eval)
-jd_sparse_all = scipy.sparse.load_npz("artifacts/jd_sparse_query.npz")
+jd_sparse_all = scipy.sparse.load_npz("artifacts/jd_sparse_queries.npz")
 
 # --- Signal 1, 2, 3: Dense FAISS searches ---
-_, idx1 = index.search(jd_v1, k=2000)
-_, idx2 = index.search(jd_recsys, k=2000)
-_, idx3 = index.search(jd_eval, k=2000)
+_, idx1 = index.search(jd_v1, k=k_search)
+_, idx2 = index.search(jd_recsys, k=k_search)
+_, idx3 = index.search(jd_eval, k=k_search)
 dense_ids_v1 = [all_ids[i] for i in idx1[0]]
 dense_ids_recsys = [all_ids[i] for i in idx2[0]]
 dense_ids_eval = [all_ids[i] for i in idx3[0]]
@@ -116,7 +121,7 @@ elif jd_sparse_all.shape[1] > vocab_size:
 
 sparse_scores = candidate_sparse_csr.dot(jd_sparse_all.T).toarray().max(axis=1)
 # .toarray() is mandatory because dot() returns a sparse structure.
-top_sparse_idx = np.argsort(sparse_scores)[::-1][:2000]
+top_sparse_idx = np.argsort(sparse_scores)[::-1][:k_search]
 sparse_ids_learned = [all_ids[i] for i in top_sparse_idx]
 
 # --- Signal 5: BM25 lexical ---
@@ -125,7 +130,7 @@ with open("artifacts/bm25_index.pkl", "rb") as f:
 keywords = json.load(open("artifacts/jd_keywords.json"))
 query_tokens = normalize_text(" ".join(keywords)).split()  # same tokenizer as index build
 bm25_scores = bm25.get_scores(query_tokens)
-top_bm25_idx = np.argsort(bm25_scores)[::-1][:2000]
+top_bm25_idx = np.argsort(bm25_scores)[::-1][:k_search]
 sparse_ids_bm25 = [all_ids[i] for i in top_bm25_idx]
 
 # --- 6-Way RRF ---

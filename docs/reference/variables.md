@@ -20,19 +20,19 @@ This file is the concise current tuning reference for the checked-in pipeline. T
 ```text
 core_score =
   0.55 * must_have_score
-+ 0.10 * nice_to_have_score
++ 0.05 * nice_to_have_score
 + 0.15 * career_quality_score
-+ 0.20 * product_builder_score
++ 0.25 * product_builder_score
 ```
 
 Must-have inner weights:
 
 | Signal | Weight |
 |---|---:|
-| retrieval/search evidence | 0.25 |
-| vector DB / hybrid search | 0.20 |
+| retrieval/search evidence | 0.22 |
+| vector DB / hybrid search | 0.16 |
 | search/recsys/ranking system experience | 0.20 |
-| evaluation framework | 0.10 |
+| evaluation framework | 0.17 |
 | Python coding | 0.05 |
 
 Nice-to-have inner weights:
@@ -45,6 +45,8 @@ Nice-to-have inner weights:
 | HR-tech exposure | 0.01 |
 
 Product-builder score is precomputed in `src/features.py` from product-company ratio, deployment language, shipper-vs-researcher language, and ownership evidence.
+
+Audit-specific corrections now add small Phase 4 adjustments for strong retrieval + LTR + evaluation trifectas, sustained career IR density, and low-density/template-isolated IR evidence. These are configured in `weights.yaml` under `scoring.eval_trifecta_bonus`, `scoring.career_ir_density_*`, and `scoring.isolated_template_risk_mult`.
 
 ## Behavioral Score
 
@@ -65,6 +67,7 @@ Key penalty and modifier families:
 |---|---|---|
 | Reachability | inactivity, not open to work, low recruiter response | `behavioral.*` |
 | Logistics | notice period, location/relocation, seniority, writing signal | `behavioral.*`, `soft_penalties.*` |
+| Career IR density | sustained search/ranking/evaluation versus isolated chatbot/churn/CV templates | `src/features.py`, `scoring.*`, `soft_penalties.*` |
 | JD disqualifiers | research-only, wrong domain, LangChain-only, keyword stuffing, consulting-only | `soft_penalties.*`, `metadata/JD_contract.yaml` |
 | Trust checks | contradiction counts, target-skill duration overclaims, honeypot score | `honeypot.*`, `soft_penalties.*` |
 | Social proof | GitHub, recruiter saves, endorsements, interview/offer behavior, profile completeness, LinkedIn, fast response | `social_proof.*` |

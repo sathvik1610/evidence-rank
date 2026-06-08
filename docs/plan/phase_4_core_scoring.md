@@ -18,10 +18,10 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
     sys_experience_score = bucket_b.get("sys_experience_score", 0.0)
 
     must_have_raw = (
-        0.25 * retrieval_ev +           # Core IR/search evidence (primary signal)
-        0.20 * vectordb_ev +            # Vector DB / hybrid search
+        0.22 * retrieval_ev +           # Core IR/search evidence (primary signal)
+        0.16 * vectordb_ev +            # Vector DB / hybrid search
         0.20 * sys_experience_score +   # Recsys/matching/ranking systems — equal to vector_db per JD
-        0.10 * eval_ev +                # Evaluation culture (NDCG/MRR/A-B)
+        0.17 * eval_ev +                # Evaluation culture (NDCG/MRR/A-B)
         0.05 * python_ev                # Python coding evidence
     )
 
@@ -40,8 +40,8 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
     must_have_score = min(must_have_score, 1.0)  # Cap at 1.0 in case of assessment bonuses
 
 
-    # --- Nice-to-Have Score (10%) ---
-    # Weight reduced from 20% → 10%; headroom reallocated to Product Builder Score.
+    # --- Nice-to-Have Score (5%) ---
+    # Weight reduced so broad nice-to-have matches cannot overpower core JD evidence.
     ltr_ev = bucket_a.get("ltr_reranking", 0.0) / 3.0
     llm_ev = bucket_a.get("llm_integration", 0.0) / 3.0
     dist_ev = bucket_a.get("distributed_systems", 0.0) / 3.0
@@ -77,7 +77,7 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
 
     career_quality_score = career_quality_raw / 0.15  # Normalize to [0,1]
 
-    # --- Product Builder Score (20%) ---
+    # --- Product Builder Score (25%) ---
     # Explicit composite of founding-team and shipping signals.
     # The JD emphasises product-company background, shipping velocity, and ownership
     # at least as much as specific ML tool keywords (§1.2). Computed in Bucket B
@@ -88,10 +88,15 @@ def compute_core_score(bucket_a, bucket_b, bucket_c, behavioral, flags) -> float
     # --- Combined Weighted Score ---
     core_score = (
         0.55 * must_have_score +
-        0.10 * nice_to_have_score +
+        0.05 * nice_to_have_score +
         0.15 * career_quality_score +
-        0.20 * product_builder_score
+        0.25 * product_builder_score
     ) * 100.0  # Normalize to a strict 100.0 scale to bound Phase 5 penalties
+
+    # Manual-audit corrections:
+    # - add a stronger bonus only for retrieval + strong LTR + evaluation evidence
+    # - add a small sustained-career IR density bonus
+    # - downweight low-density or isolated-template evidence
 
     return float(core_score)
 ```

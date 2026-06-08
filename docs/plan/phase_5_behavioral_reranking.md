@@ -53,6 +53,10 @@ The group is floor-capped through `behavioral.logistical_floor` in `weights.yaml
 - closed-source/no external validation
 - weak adjacent-domain title with weak retrieval/vector/evaluation evidence
 - current consulting firm with weak target/product evidence
+- no relocation outside preferred/welcome cities
+- >90-day notice plus no relocation outside preferred/welcome cities
+- isolated template risk from weak career IR density or repeated adjacent RAG/chatbot/churn work
+- low career IR density
 - below-5-year YoE soft penalty
 - >90-day notice period when evaluation evidence is absent
 
@@ -65,6 +69,8 @@ Target-skill duration contradictions are intentionally narrower than generic ski
 Candidates below 5 years are not hard-filtered, because the JD explicitly says the 5-9 year range is a preference. They do receive a soft Phase 5 penalty so top ranks remain biased toward the author's intended senior IC profile unless the technical evidence is unusually strong.
 
 Adjacent-domain and current-consulting penalties are also evidence-gated. They do not hard-filter a candidate merely for having a Computer Vision title or a current TCS/Infosys/Wipro-style employer. They apply only when the same candidate lacks project-level retrieval, vector, and evaluation evidence, or has weak product-builder evidence.
+
+Responsive passive candidates are not double-penalized solely for `open_to_work_flag = false`: if recruiter response rate is at least `behavioral.passive_response_skip_threshold`, the not-open penalty is skipped. Missing country is treated as unknown logistics, not as abroad/no-relocation.
 
 ### 9.6 Floor Exemptions
 
@@ -79,6 +85,8 @@ The combined multiplier floor is useful for ordinary soft signals, but it must n
 - keyword-stuffed profiles
 - weak adjacent-domain profiles
 - weak current-consulting profiles
+- bad logistics combinations
+- isolated template-risk profiles
 
 The exemption list is read from `metadata.JD_contract.yaml`.
 
