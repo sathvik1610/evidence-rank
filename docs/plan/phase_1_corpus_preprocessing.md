@@ -174,6 +174,13 @@ def check_impossible_flag(candidate) -> bool:
         if claimed_months > max_possible_months + 6:  # 6-month buffer for rounding
             return True
 
+    # Rule I-5: skill duration wildly exceeds claimed YoE.
+    # Skill durations are noisy/overlapping, so modest overshoots become
+    # contradiction penalties later. Only absurd overshoots are hard kills.
+    yoe_months = profile.get("years_of_experience", 0) * 12
+    if any((s.get("duration_months") or 0) > yoe_months + 48 for s in skills):
+        return True
+
     return False
 ```
 

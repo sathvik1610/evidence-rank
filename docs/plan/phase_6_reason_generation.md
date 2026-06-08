@@ -1,142 +1,73 @@
-## 10. Phase 6 — Reason Generation
+## 10. Phase 6 - Reason Generation
 
-### 10.1 Requirements
+### 10.1 Purpose
 
-The Stage 4 review samples 10 random rows and checks for:
-- Specific facts from the candidate's profile
-- Connection to JD requirements
-- Acknowledgment of gaps (mandatory for ranks 50+)
-- No hallucinated claims
-- Structural variation across entries
-- Rank-appropriate tone
-- **Downstream Independence:** Explanations are strictly computed after all scores and ranks have been finalized. The reason generation step must never feedback into or influence candidate scores or final rank ordering.
+Phase 6 runs after final scores and ranks are assigned. It must never affect candidate ranking.
 
-### 10.2 90-day plan milestone framing
+The implementation is `src/explainer.py`. It generates short, evidence-safe explanations for the final CSV and a debug trace in `artifacts/ranking_debug.csv`.
 
-The JD describes three milestones for the first 90 days. Map each candidate's strongest evidence to the milestone they are best positioned for:
+Basic profile facts (`current_title`, `current_company`, `years_of_experience`, and location) are copied into `candidate_features.parquet` during Phase 3. The explainer uses these copied fields directly; it does not infer facts from model output.
 
-- **Weeks 1-3** (Audit BM25/retrieval): Strong retrieval evidence or BM25/search infrastructure history
-- **Weeks 4-8** (Ship v2 hybrid ranker): Strong vector DB + production deployment evidence
-- **Weeks 9-12** (Build evaluation framework): Strong NDCG/MRR/A-B testing evidence
+### 10.2 Evidence Domains
 
-This framing shows Stage 4 reviewers that the system understood the JD at a human level, not a keyword level.
+The explainer ranks candidate strengths using the same feature columns produced by Phase 3:
 
-### 10.3 Generator function
+- `retrieval_search`
+- `sys_experience_score`
+- `vector_db_hybrid`
+- `ltr_reranking`
+- `eval_framework`
+- `product_builder_score`
+- `python_coding`
+- `llm_integration`
 
-### 10.3 Generator architecture: Evidence-driven lead selection
+`ltr_reranking` must remain a first-class explanation domain because the JD explicitly values ranking systems, hybrid rankers, XGBoost/LTR, cross-encoders, and reranking.
 
-Fixed templates fail Stage 4 not because of wording but because of **information ordering** — template systems always present signals in the same sequence regardless of which signals are strongest for that specific candidate. Reviewers see through this.
+### 10.3 Tone Rules
 
-The correct architecture: the **strongest domain signal per candidate leads the sentence**. A candidate whose top signal is marketplace ranking gets a completely different opening than one whose top signal is evaluation metrics infrastructure — not synonym swapping, but different facts leading.
+The lead sentence is based on the strongest domain:
 
-```python
-STRENGTH_DOMAINS = [
-    "retrieval_systems",       # FAISS, vector DB, hybrid search, ANN
-    "recommendation_systems",  # RecSys, collaborative filtering, matching engines
-    "marketplace_ranking",     # two-sided marketplace, feed ranking, job/candidate matching
-    "evaluation_metrics",      # NDCG, MRR, MAP, A/B testing, offline-online eval
-    "product_ml",              # shipping to real users, production deployment, latency
-    "startup_scale",           # founding team, 0-to-1 builds, startup product experience
-    "vector_infrastructure",   # Pinecone, Qdrant, Milvus, Weaviate, embedding drift
-]
+- score `>= 3.0`: strong evidence, use snippet when available.
+- score `>= 2.0`: profile-text evidence, but not necessarily production-localized.
+- score `> 0.0`: skills-list or weaker evidence.
+- score `0.0`: limited direct evidence.
 
-def generate_reasoning(candidate_data: dict) -> str:
-    """
-    Evidence-driven lead selection with safe sentinel handling.
-    Three rules:
-    1. Lead varies because strongest domain varies per candidate.
-    2. Every proper noun and number comes from the actual profile JSON (no hallucination).
-    3. Missing data (sentinels: -1, "UNKNOWN") triggers safe fallback templates.
-    """
-    domain_scores = candidate_data["domain_scores"]  # dict[str, float] from Phase 3
-    candidate_facts = candidate_data["candidate_facts"]  # extracted facts per domain
-    flags = candidate_data["flags"]
-    behavioral = candidate_data["behavioral"]
+Support sentences mention a secondary capability for highly ranked candidates when the secondary signal is real. Otherwise they fall back to the JD's 90-day milestone framing.
 
-    # Safely filter facts to ignore sentinel values (-1, "UNKNOWN")
-    def safe_facts(domain: str) -> dict:
-        facts = candidate_facts.get(domain, {})
-        return {k: v for k, v in facts.items() if v not in (-1, "UNKNOWN")}
+Reasons should stay at 1-2 sentences. The first sentence starts with concrete profile facts and the primary evidence domain; the second sentence, when present, adds secondary JD alignment or a concern.
 
-    # Rank domains by evidence score
-    ranked_domains = sorted(STRENGTH_DOMAINS, key=lambda d: domain_scores.get(d, 0.0), reverse=True)
-    primary = ranked_domains[0]
-    secondary = ranked_domains[1] if len(ranked_domains) > 1 else None
+### 10.4 90-Day Milestone Framing
 
-    # Lead sentence: safe formatting
-    primary_facts = safe_facts(primary)
-    try:
-        lead = LEAD_TEMPLATES[primary].format(**primary_facts)
-    except KeyError:
-        lead = f"Candidate shows strong evidence in {primary.replace('_', ' ')}."
+- Weeks 1-3: retrieval/search/system evidence.
+- Weeks 4-8: vector DB, LTR/reranking, product ML, or LLM ranker evidence.
+- Weeks 9-12: evaluation framework evidence.
 
-    # Support sentence: secondary strength or 90-day milestone framing
-    support = ""
-    if secondary and domain_scores.get(secondary, 0.0) > 0.2:
-        secondary_facts = safe_facts(secondary)
-        try:
-            support = SUPPORT_TEMPLATES[secondary].format(**secondary_facts)
-        except KeyError:
-            support = ""
-            
-    if not support:
-        # Fall back to 90-day milestone framing if no strong secondary signal
-        milestone = get_90day_milestone(primary)
-        support = f"Best positioned for {milestone} mandate."
+This is only explanatory framing. The 90-day score itself is computed in Phase 3 and added in Phase 5.
 
-    # Concern sentence: only when genuinely present
-    concern = get_largest_concern(candidate_data)
-    if concern:
-        concern_facts = safe_facts(concern)
-        try:
-            caveat = CONCERN_TEMPLATES[concern].format(**concern_facts)
-        except KeyError:
-            caveat = f"Note: Potential gap identified in {concern.replace('_', ' ')}."
-    else:
-        caveat = ""
+### 10.5 Concerns
 
-    parts = [p for p in [lead, support, caveat] if p]
-    return " ".join(parts[:2])  # Spec: 1-2 sentences
+`get_largest_concern()` surfaces the highest-impact concern in this order:
 
+- impossible or suspicious profile
+- research-only background
+- wrong-domain background
+- LangChain-wrapper-only risk
+- consulting-heavy career
+- code-stopped seniority risk
+- title velocity
 
-def get_largest_concern(candidate_data: dict) -> str | None:
-    """
-    Returns the name of the largest gap/concern, or None if no real concern exists.
-    DO NOT emit a concern just to hit a target percentage.
-    Reviewers care about honest concerns, not equal concern distribution.
-    """
-    CONCERN_THRESHOLD = 0.4  # Minimum gap score to surface as a concern
-    concern_scores = candidate_data.get("concern_scores", {})
-    if not concern_scores:
-        return None
-    best = max(concern_scores, key=lambda k: concern_scores[k])
-    return best if concern_scores[best] > CONCERN_THRESHOLD else None
-```
+For ranks above 30, present a concern when one exists. For ranks above 70, acknowledge technical-depth gaps even when no specific flag exists.
 
-**What creates genuine variation:** Different candidates have different primary domains. A RecSys engineer leads with marketplace matching facts. An IR specialist leads with retrieval infrastructure facts. The sentence structure may share a template, but the facts are different, the domain is different, and the ordering is different.
+### 10.6 Debug Output
 
-**Hallucination prevention:** Every value passed to `.format(**candidate_facts[domain])` must be extracted directly from the candidate JSON in Phase 3 — company names, system names, duration numbers, endorsement counts. Never infer or invent.
+`rank.py` writes `artifacts/ranking_debug.csv` with:
 
-### 10.4 Rank-dependent tone
-
-| Rank Range | Template Tone | Mandatory Elements |
-|---|---|---|
-| 1–30 | Strong positive; lead with best evidence | Snippet + company/scale signal; positive behavioral if strong |
-| 31–70 | Neutral; evidence + one concern if present | Snippet; concern if notice/consulting/inactive |
-| 71–100 | Honest gap acknowledgment mandatory | At least one concern; "limited evidence" if no snippet |
-
-### 10.5 Debugging Outputs (Offline only)
-
-For troubleshooting and manual verification, the ranking engine will save a separate debug file (`artifacts/ranking_debug.csv`) alongside the official submission CSV. This file will contain:
 - `candidate_id`
 - `rank`
 - `score`
+- `core_score`
+- `ce_score`
 - `reasoning`
-- `primary_strength`: The primary domain identifier leading the explanation (e.g. `retrieval_systems`)
-- `secondary_strength`: The secondary domain identifier (or `None` / `milestone`)
-- `concern`: The identifier of the largest concern (or `None`)
+- `concern`
 
-This is exclusively for developer inspection and manual audits of the top 100 candidates; the official submission CSV (`BuriBuri.csv`) will remain strictly formatted with only the required columns (`candidate_id,rank,score,reasoning`).
-
----
-
+The official output CSV contains only the required submission fields.

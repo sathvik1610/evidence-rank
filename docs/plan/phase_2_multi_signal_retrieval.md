@@ -67,7 +67,7 @@ The five orthogonal signals:
 1. **Dense List 1** — Cosine similarity via FAISS against `jd_v1_skills_vector.npy` (YAML-derived skills query)
 2. **Dense List 2** — Cosine similarity via FAISS against `jd_hyde_recsys_vector.npy` (RecSys HyDE persona)
 3. **Dense List 3** — Cosine similarity via FAISS against `jd_hyde_eval_vector.npy` (Eval/Metrics HyDE persona)
-4. **Learned Sparse List 4** — C-speed dot-product via SciPy CSR: `candidate_sparse_csr.dot(query_sparse_row.T).toarray().flatten()`
+4. **Learned Sparse List 4** — C-speed dot-product via SciPy CSR across all YAML-derived sparse query rows, collapsed to one sparse ranking list by per-candidate max score
 5. **Lexical Sparse List 5** — `rank_bm25` exact term matching scores
 
 **Tokenizer alignment rule:** The same lowercasing + punctuation-stripping function must be used for both the candidate text preprocessing loop (Phase 1b BM25 build) and the BM25 query construction. Mismatched tokenization silently degrades sparse recall.
@@ -91,8 +91,6 @@ jd_eval = np.load("artifacts/jd_hyde_eval_vector.npy").astype(np.float32).reshap
 
 # Load sparse query CSR (row 0 = v1_skills, row 1 = recsys, row 2 = eval)
 jd_sparse_all = scipy.sparse.load_npz("artifacts/jd_sparse_query.npz")
-# Use the v1_skills sparse row as the canonical sparse query signal
-jd_sparse_row = jd_sparse_all[0]  # shape: (1, vocab_size)
 
 # --- Signal 1, 2, 3: Dense FAISS searches ---
 _, idx1 = index.search(jd_v1, k=2000)
@@ -105,16 +103,16 @@ dense_ids_eval = [all_ids[i] for i in idx3[0]]
 # --- Signal 4: Learned Sparse dot-product (C-speed) ---
 # vocab_size must match the CSR matrix shape. Resize query if needed.
 vocab_size = candidate_sparse_csr.shape[1]
-if jd_sparse_row.shape[1] < vocab_size:
-    jd_sparse_row = scipy.sparse.hstack([
-        jd_sparse_row,
-        scipy.sparse.csr_matrix((1, vocab_size - jd_sparse_row.shape[1]))
+if jd_sparse_all.shape[1] < vocab_size:
+    jd_sparse_all = scipy.sparse.hstack([
+        jd_sparse_all,
+        scipy.sparse.csr_matrix((jd_sparse_all.shape[0], vocab_size - jd_sparse_all.shape[1]))
     ])
-elif jd_sparse_row.shape[1] > vocab_size:
-    jd_sparse_row = jd_sparse_row[:, :vocab_size]
+elif jd_sparse_all.shape[1] > vocab_size:
+    jd_sparse_all = jd_sparse_all[:, :vocab_size]
 
-sparse_scores = candidate_sparse_csr.dot(jd_sparse_row.T).toarray().flatten()
-# .toarray().flatten() is mandatory — dot() returns a sparse structure
+sparse_scores = candidate_sparse_csr.dot(jd_sparse_all.T).toarray().max(axis=1)
+# .toarray() is mandatory because dot() returns a sparse structure.
 top_sparse_idx = np.argsort(sparse_scores)[::-1][:2000]
 sparse_ids_learned = [all_ids[i] for i in top_sparse_idx]
 

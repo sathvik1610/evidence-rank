@@ -55,7 +55,8 @@ The system executes in two strictly separated environments:
 - Phase 1e: Run cross-encoder on top 500 candidates offline; save to `cross_encoder_scores.parquet`
 
 **Runtime Ranking Engine (`rank.py`, must complete in under 5 minutes on CPU, no network):**
-- Phase 2: Load precomputed retrieval scores → filter to top 3,000 candidates (configurable via weights.yaml) (< 5s). Top 5,000 are saved in the precomputed file to allow flexibility — Phase 2 slices to 3,000 at runtime, preserving the option to adjust the cutoff without re-running offline phases.
+- Input guard: read `candidate_id` values from `--candidates` and filter precomputed features to that exact input file. If there is no overlap, exit and require a fresh preprocess run.
+- Phase 2: When `artifacts/retrieval_scores.parquet` exists, join retrieval scores and filter to top 3,000 candidates (configurable via `weights.yaml`). Sample `--skip-embed` runs do not create retrieval scores, so all sample candidates are scored.
 - Phase 3: Load precomputed candidate features from parquet (< 5s)
 - Phase 4: Load precomputed cross-encoder scores + compute weighted final score → top 200–300 (< 30s)
 - Phase 5: Behavioral re-ranking + penalization → top 100 (< 10s)
@@ -71,9 +72,7 @@ The system executes in two strictly separated environments:
 
 This system assumes the official competition dataset (`candidates.jsonl` as distributed in the hackathon bundle). Runtime embedding generation is **intentionally unsupported** — the competition explicitly permits offline precomputation, and adding fallback runtime ML inference would force heavy dependencies into `rank.py`.
 
-**Small-file fallback (sandbox path):** If `artifacts/retrieval_scores.parquet` is not found **and** the input file contains ≤ 100 candidates, `rank.py` runs Phase 3 regex feature extraction and Phase 4 scoring entirely in-memory — no FAISS, no BM25 index, no cross-encoder. Because only 100 candidates are processed, this takes milliseconds on CPU. This means the Gradio `app.py` sandbox invokes `rank.py` directly (not a separate demo codebase), preserving a single source of truth.
-
-If artifacts are missing **and** the file contains > 100 candidates, `rank.py` logs an error to stderr and exits gracefully.
+**Small-file sample path:** Run `preprocess.py --sample --skip-embed` first. This creates flags and features for `Resources/sample_candidates.json` without dense embeddings, FAISS, BM25, RRF, or cross-encoder artifacts. Then `rank.py --candidates Resources/sample_candidates.json --out submission.csv` ranks those precomputed sample features. If feature artifacts are missing, `rank.py` exits and asks for preprocess; it does not recompute Phase 3 at runtime.
 
 **Weight Overfitting Protection:**
 Validation must be performed on the 150-200 manually-labeled candidates without aggressively tuning weights to prevent validation set overfitting. Keep weights conservative and generalized.
@@ -169,6 +168,7 @@ Stage B should function as a lightweight ranking system operating primarily on p
 ├── app.py                         # HuggingFace Spaces Gradio sandbox
 ├── src/
 │   ├── __init__.py
+│   ├── jd_intelligence.py          # Phase 0: YAML/JD-derived query, HyDE, and BM25 keyword generation
 │   ├── retriever.py               # Phase 2: 5-way RRF (FAISS + CSR dot-product + BM25)
 │   ├── features.py                # Phase 3: Bucket A/B/C extraction
 │   ├── scorer.py                  # Phase 4: Weighted scoring formula
@@ -197,9 +197,11 @@ Stage B should function as a lightweight ranking system operating primarily on p
 
 **What each key file does:**
 
-`rank.py` — Competition entry point. Takes `--candidates` and `--out` as CLI arguments. Loads all precomputed artifacts from `artifacts/`, runs Phases 2–6 as pure in-memory operations, writes the output CSV. Must complete in under 5 minutes. **Does not import `flagembedding`, `sentence-transformers`, `faiss`, or `torch` at import time.**
+`rank.py` — Competition entry point. Takes `--candidates` and `--out` as CLI arguments. Reads input candidate IDs, filters precomputed features to that input file, optionally applies the RRF runtime cutoff if retrieval scores exist, then runs Phases 4–6 as pure in-memory operations and writes the output CSV. Must complete in under 5 minutes. **Does not import `flagembedding`, `sentence-transformers`, `faiss`, or `torch` at import time.**
 
 `preprocess.py` — Offline pipeline runner. Phase 0 JD intelligence, Phase 1 corpus embedding + sparse CSR matrix build, FAISS index, BM25 index, honeypot flagging, ghost pre-filtering, 5-way RRF retrieval scoring, feature extraction, cross-encoder inference. No time constraint. GPU-adaptive for embedding steps.
+
+`src/jd_intelligence.py` — Reads `metadata/JD_contract.yaml` and `Resources/job_description.txt`, then generates `jd_config.json`, BM25 keywords, dense query text, HyDE-style query text, and the cross-encoder JD query. This is the single source for Phase 0 retrieval text; do not reintroduce hardcoded JD/HyDE strings in `preprocess.py`.
 
 `constants.py` — Single source of truth for every artifact path string. Both `preprocess.py` and `rank.py` (and all modules under `src/`) import paths exclusively from here. Renaming any artifact requires one edit in one file. See §3.1.
 
@@ -211,13 +213,13 @@ Stage B should function as a lightweight ranking system operating primarily on p
 
 `src/retriever.py` — At preprocess time: 5-way RRF (3 dense FAISS searches + 1 learned-sparse CSR dot-product + 1 BM25) → saves `retrieval_scores.parquet`. At rank time: loads parquet, filters to top N.
 
-`src/features.py` — At preprocess time: regex-based Bucket A/B/C extraction on all retrieved candidates → saves `candidate_features.parquet`. At rank time: loads parquet.
+`src/features.py` — At preprocess time: YAML-contract-driven Bucket A/B/C extraction on all retrieved candidates → saves `candidate_features.parquet`. At rank time: loads parquet.
 
 `src/scorer.py` — Weighted formula: must-have (55%), nice-to-have (10%), career quality (15%), product builder (20%). Pure pandas/numpy; no model calls.
 
 `src/reranker.py` — At preprocess time only: cross-encoder scoring using `bge-reranker-v2-m3` on top 500 → saves `cross_encoder_scores.parquet`. At rank time: loads parquet, merges scores.
 
-`src/behavioral.py` — Multiplicative modifiers: availability, notice, location, social proof, seniority, writing signal, soft penalties, and 90-day bonus.
+`src/behavioral.py` — Multiplicative modifiers: availability, notice, YAML-derived location bands, social proof, seniority, writing signal, soft penalties, floor-exempt disqualifier handling, and 90-day bonus.
 
 `src/explainer.py` — Reason generation with 90-day plan framing and evidence injection.
 
