@@ -190,13 +190,13 @@ preprocess.py  (run once offline, no time limit)
     ├── Phase 1d: RRF retrieval (FAISS + BM25 → RRF) → artifacts/retrieval_scores.parquet  [top 5,000]
     ├── Phase 1c: Feature extraction (Bucket A/B/C on top 5,000) → artifacts/candidate_features.parquet
     │            Preliminary core score computed here to rank candidates for CE selection
-    └── Phase 1b: Cross-encoder top 500 (by preliminary core score) → artifacts/cross_encoder_scores.parquet
+    └── Phase 1e: Cross-encoder top 5,000 RRF candidates → artifacts/cross_encoder_scores.parquet (`ce_raw_score`, normalized `ce_score`)
 
 rank.py  (evaluation machine, ≤ 5 minutes wall clock)
     │
     ├── Load artifacts/retrieval_scores.parquet      → top 5000 candidates (sliced to top 3,000 at runtime)
     ├── Load artifacts/candidate_features.parquet    → Bucket A/B/C ready
-    ├── Load artifacts/cross_encoder_scores.parquet  → CE scores ready (top 500 precomputed)
+    ├── Load artifacts/cross_encoder_scores.parquet  → normalized CE scores ready for runtime Top 500
     ├── Load artifacts/run_metadata.json             → reference_date
     │   reference_date = max(stored_date, max(candidates last_active_date))
     │   (guards against time-drift if sandbox receives newer candidates)

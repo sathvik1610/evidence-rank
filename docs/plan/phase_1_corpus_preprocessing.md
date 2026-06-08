@@ -93,7 +93,7 @@ candidate_sparse_csr = scipy.sparse.csr_matrix(
     (vals, (rows, cols)),
     shape=(len(all_sparse_dicts), vocab_size)
 )
-scipy.sparse.save_npz("artifacts/candidate_sparse.npz", candidate_sparse_csr)
+scipy.sparse.save_npz("artifacts/candidate_sparse_matrix.npz", candidate_sparse_csr)
 print(f"Sparse CSR saved: shape={candidate_sparse_csr.shape}, nnz={candidate_sparse_csr.nnz:,}")
 # Expected memory: ~80-100 MB for 100K candidates at ~100 avg non-zero tokens
 # (vs 400 MB for dense, vs 25-100 GB for ColBERT)
@@ -230,8 +230,9 @@ def compute_honeypot_score(candidate) -> float:
         score += 0.15
 
     # S-6: All career descriptions statistically uniform in length (weight 0.10)
+    # Trigger from 2+ roles; fake two-role resumes can copy/paste too.
     desc_lengths = [len(r.get("description", "")) for r in career if r.get("description")]
-    if len(desc_lengths) >= 3:
+    if len(desc_lengths) >= 2:
         mean_len = sum(desc_lengths) / len(desc_lengths)
         variance = sum((l - mean_len)**2 for l in desc_lengths) / len(desc_lengths)
         if variance < 100:  # All descriptions within ~10 chars of each other
@@ -247,7 +248,7 @@ def check_suspicious_flag(honeypot_score: float) -> bool:
 
 ### 5.6 Ghost profile pre-filter
 
-A ghost profile is one that is effectively unreachable regardless of fit. Pre-filtering removes them from retrieval entirely, improving precision without meaningful recall loss. Approximately 1–3% of the corpus will be flagged.
+A ghost profile is one that is effectively unreachable regardless of fit. Phase 1f flags them, Phase 1d excludes them from RRF fusion, and Phase 5 still applies a kill-switch fallback for legacy artifacts. Approximately 1-3% of the corpus will be flagged.
 
 **Ghost criteria — ALL four conditions must be true:**
 - `last_active_date` > 365 days before the reference date
@@ -309,12 +310,17 @@ def tag_disqualifiers(candidate) -> dict:
     has_only_research = not has_engineering and any(t in " ".join(titles_lower) for t in research_titles)
     research_only = has_only_research
 
-    # wrong_domain: CV/speech/robotics without NLP/IR
+    # wrong_domain: CV/speech/robotics without NLP/IR.
+    # Escape requires description evidence; skills-only keyword stuffing is not enough.
+    # If the current role is itself CV/speech/robotics and lacks current IR/NLP/search
+    # evidence, require at least two relevant historical roles before escaping the
+    # wrong-domain penalty. This reflects the JD's "primary expertise" language.
     cv_speech_terms = {"computer vision", "opencv", "yolo", "object detection", "speech recognition", "tts", "asr", "robotics"}
     nlp_ir_terms = {"nlp", "retrieval", "ranking", "recommendation", "search", "embedding", "information retrieval"}
     has_cv_speech = any(t in desc_text or any(t in s for s in skills_lower) for t in cv_speech_terms)
-    has_nlp_ir = any(t in desc_text or any(t in s for s in skills_lower) for t in nlp_ir_terms)
-    wrong_domain = has_cv_speech and not has_nlp_ir
+    has_nlp_ir = any(t in desc_text for t in nlp_ir_terms)
+    primary_wrong_domain = current_has_cv_speech and not current_has_nlp_ir and nlp_ir_role_count < 2
+    wrong_domain = (has_cv_speech and not has_nlp_ir) or primary_wrong_domain
 
     return {
         "product_ratio": round(product_ratio, 4),
@@ -338,7 +344,7 @@ Save `artifacts/candidate_flags.parquet` with one row per candidate:
 | product_ratio | float | 0.0–1.0 time-weighted product company ratio |
 | consulting_only | bool | Entire career at consulting firms |
 | research_only | bool | Only academic/research roles |
-| wrong_domain | bool | CV/speech/robotics, no NLP/IR |
+| wrong_domain | bool | CV/speech/robotics primary expertise without sufficient NLP/IR/search evidence |
 | contradiction_skill_duration | int | Count of skills > career timeline + 48mo |
 | contradiction_assessment | int | Count of expert skills with test score < 40 |
 

@@ -139,6 +139,44 @@ def test_langchain_only_candidate():
     assert f_lc["langchain_only_flag"] is True
     assert f_lc["seniority_score"] < 1.0
 
+def test_support_chatbot_current_role_is_not_relevant_recency():
+    """Support RAG with vector DBs should not count as current ranking/search ownership."""
+    chatbot_cand = {
+        "candidate_id": "TEST_CHATBOT",
+        "profile": {"current_title": "Senior Data Scientist", "years_of_experience": 6.0, "location": "Delhi", "country": "India"},
+        "career_history": [
+            {
+                "title": "Senior Data Scientist",
+                "company": "CRED",
+                "industry": "Fintech",
+                "duration_months": 24,
+                "is_current": True,
+                "description": (
+                    "Implemented a RAG-based customer support chatbot integrated with our "
+                    "ticketing system. Built document ingestion, OpenAI embeddings, Pinecone "
+                    "storage, and answer generation."
+                ),
+            },
+            {
+                "title": "ML Engineer",
+                "company": "Nykaa",
+                "industry": "E-commerce",
+                "duration_months": 24,
+                "is_current": False,
+                "description": "Built production ML pipelines for churn prediction and model monitoring.",
+            },
+        ],
+        "skills": [{"name": "Pinecone", "proficiency": "advanced", "duration_months": 24}],
+        "redrob_signals": {},
+        "education": [],
+    }
+
+    career_text = _build_career_text(chatbot_cand)
+    flags = {"product_ratio": 1.0, "consulting_only": False, "research_only": False, "wrong_domain": False}
+    bucket = score_career_quality(chatbot_cand, career_text, flags)
+    assert bucket["experience_recency"] == 0.3
+    assert bucket["sys_experience_score"] == 0.5
+
 def test_adversarial_empty_candidate():
     """Empty candidate (all fields missing)."""
     empty_cand = {"candidate_id": "EMPTY", "profile": {}, "career_history": [], "skills": [], "redrob_signals": {}, "education": []}

@@ -82,7 +82,7 @@ from rank_bm25 import BM25Okapi
 # --- Load precomputed artifacts ---
 index = faiss.read_index("artifacts/faiss_index.bin")
 all_ids = json.load(open("artifacts/candidate_ids.json"))
-candidate_sparse_csr = scipy.sparse.load_npz("artifacts/candidate_sparse.npz")
+candidate_sparse_csr = scipy.sparse.load_npz("artifacts/candidate_sparse_matrix.npz")
 
 # Load 3 dense JD query vectors
 jd_v1 = np.load("artifacts/jd_v1_skills_vector.npy").astype(np.float32).reshape(1, -1)

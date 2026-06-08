@@ -2,7 +2,15 @@ import sys
 sys.path.insert(0, ".")
 from datetime import date
 import pytest
-from preprocess import _check_impossible_flag, _compute_honeypot_score, _is_ghost
+import pandas as pd
+import constants
+from src.weights import W
+from preprocess import (
+    _check_impossible_flag,
+    _compute_honeypot_score,
+    _is_ghost,
+    run_phase_1f_honeypots,
+)
 
 def test_ghost_detection():
     """Ghost detection: 4-condition AND-gate."""
@@ -61,6 +69,114 @@ def test_honeypot_scoring():
     }
     score = _compute_honeypot_score(honeypot)
     assert score >= 0.60, f"Expected high honeypot score, got {score}"
+
+def test_uniform_descriptions_honeypot_triggers_for_two_roles():
+    """Two identical role descriptions should trigger S-6 copy-paste signal."""
+    cand = {
+        "career_history": [
+            {"description": "Built the same generic AI platform for client delivery."},
+            {"description": "Built the same generic AI platform for client delivery."},
+        ],
+        "skills": [],
+        "redrob_signals": {},
+        "profile": {"years_of_experience": 4},
+    }
+    assert _compute_honeypot_score(cand) >= W["honeypot.s6_uniform_descriptions"]
+
+def test_wrong_domain_escape_requires_description_evidence(tmp_path, monkeypatch):
+    """BM25 in skills must not rescue pure CV profiles; BM25 in descriptions can."""
+    out_path = tmp_path / "candidate_flags.parquet"
+    monkeypatch.setattr(constants, "CANDIDATE_FLAGS_PARQUET", str(out_path))
+
+    candidates = [
+        {
+            "candidate_id": "CAND_9000001",
+            "profile": {"years_of_experience": 6},
+            "career_history": [
+                {
+                    "title": "Computer Vision Engineer",
+                    "company": "Ola",
+                    "industry": "Mobility",
+                    "duration_months": 36,
+                    "description": "Built image classification and object detection pipelines.",
+                }
+            ],
+            "skills": [{"name": "Computer Vision"}, {"name": "BM25"}],
+            "redrob_signals": {},
+        },
+        {
+            "candidate_id": "CAND_9000002",
+            "profile": {"years_of_experience": 6},
+            "career_history": [
+                {
+                    "title": "Computer Vision Engineer",
+                    "company": "Ola",
+                    "industry": "Mobility",
+                    "duration_months": 36,
+                    "description": "Built computer vision pipelines and later owned BM25 retrieval for image search.",
+                }
+            ],
+            "skills": [{"name": "Computer Vision"}],
+            "redrob_signals": {},
+        },
+    ]
+
+    run_phase_1f_honeypots(candidates)
+    rows = pd.read_parquet(out_path).set_index("candidate_id")
+    assert rows.loc["CAND_9000001", "wrong_domain"] == True
+    assert rows.loc["CAND_9000002", "wrong_domain"] == False
+
+def test_current_cv_primary_domain_needs_deep_ir_escape(tmp_path, monkeypatch):
+    """A current CV role should not escape on one older weak recsys mention."""
+    out_path = tmp_path / "candidate_flags.parquet"
+    monkeypatch.setattr(constants, "CANDIDATE_FLAGS_PARQUET", str(out_path))
+
+    candidates = [
+        {
+            "candidate_id": "CAND_9000003",
+            "profile": {"years_of_experience": 6},
+            "career_history": [
+                {
+                    "title": "Computer Vision Engineer",
+                    "company": "Ola",
+                    "industry": "Mobility",
+                    "duration_months": 18,
+                    "is_current": True,
+                    "description": "Built image classification and object detection pipelines.",
+                },
+                {
+                    "title": "Junior ML Engineer",
+                    "company": "Tech Mahindra",
+                    "industry": "IT Services",
+                    "duration_months": 24,
+                    "description": "Built lightweight recommendation-style features for engagement.",
+                },
+            ],
+            "skills": [{"name": "Computer Vision"}, {"name": "Recommendation Systems"}],
+            "redrob_signals": {},
+        },
+        {
+            "candidate_id": "CAND_9000004",
+            "profile": {"years_of_experience": 6},
+            "career_history": [
+                {
+                    "title": "Computer Vision Engineer",
+                    "company": "Ola",
+                    "industry": "Mobility",
+                    "duration_months": 18,
+                    "is_current": True,
+                    "description": "Built BM25 retrieval and ranking for visual search relevance.",
+                }
+            ],
+            "skills": [{"name": "Computer Vision"}],
+            "redrob_signals": {},
+        },
+    ]
+
+    run_phase_1f_honeypots(candidates)
+    rows = pd.read_parquet(out_path).set_index("candidate_id")
+    assert rows.loc["CAND_9000003", "wrong_domain"] == True
+    assert rows.loc["CAND_9000004", "wrong_domain"] == False
 
 def test_sentinel_safety_empty():
     """Sentinel Safety (Missing Dates / Empty profile)."""

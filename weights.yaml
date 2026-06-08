@@ -21,10 +21,10 @@ scoring:
 
   # Must-Have sub-weights (must sum to 0.80 — the normalization denominator)
   must_have_sub:
-    retrieval_weight:      0.25  # Core IR / search / dense retrieval evidence
-    vectordb_weight:       0.20  # Vector DB / hybrid search evidence
-    sys_experience_weight: 0.20  # Recsys / matching / feed-ranking systems
-    eval_weight:           0.10  # Evaluation culture (NDCG / MRR / A-B testing)
+    retrieval_weight:      0.24  # Core IR / search / dense retrieval evidence
+    vectordb_weight:       0.18  # Vector DB / hybrid search evidence
+    sys_experience_weight: 0.18  # Recsys / matching / feed-ranking systems
+    eval_weight:           0.15  # Evaluation culture (NDCG / MRR / A-B testing)
     python_weight:         0.05  # Python engineering evidence
 
   # Nice-to-Have sub-weights (must sum to 0.10 — the normalization denominator)
@@ -68,7 +68,7 @@ scoring:
 career_multipliers:
   consulting_only_penalty:   0.40   # Entire career at consulting/services firms
   research_only_penalty:     0.50   # No engineering titles; pure researcher
-  wrong_domain_penalty:      0.30   # CV/speech/robotics with no NLP/IR exposure
+  wrong_domain_penalty:      0.40   # CV/speech/robotics with no NLP/IR — JD: "will not move forward"
 
 # ---------------------------------------------------------------------------
 # Phase 5 — Soft penalties (multiplicative on final score)
@@ -79,59 +79,78 @@ soft_penalties:
   title_velocity_mult:  0.80  # Avg tenure < 18mo across 3+ roles
   code_stopped_mult:    0.75  # Architect/VP/Director with YoE > 8
   langchain_only_mult:  0.45  # LangChain-only AI under 12 months, no pre-LLM ML
+  current_chatbot_adjacent_mult: 0.80  # Current support-chatbot/RAG work without eval/LTR depth
+  eval_gap_strong_ranking_mult: 0.95  # Strong retrieval/LTR profile with no eval evidence — JD says eval is must-have
   remote_pref_mult:     0.85  # Prefers remote for a hybrid role
   research_only_mult:   0.40  # No engineering titles
-  wrong_domain_mult:    0.50  # CV/speech/robotics without NLP/IR
+  wrong_domain_mult:    0.40  # CV/speech/robotics without NLP/IR — JD: "will not move forward"
   closed_source_mult:   0.80  # 5+ years no external validation
+  current_role_consulting_mult: 0.75  # Currently at IT services firm (TCS, Infosys…) — JD skeptical
+                                      # Softer than consulting_only_penalty (0.40) since they had product roles before
 
 # ---------------------------------------------------------------------------
 # Phase 5 — Behavioral reachability multipliers
 # Applied multiplicatively on top of the Phase 4 final score
 # ---------------------------------------------------------------------------
 behavioral:
-  # Inactivity multipliers
+  # Inactivity multipliers — three-tier system
   inactive_heavy_days:    540   # > this many days → heavy penalty
   inactive_heavy_mult:    0.60
-  inactive_moderate_days: 270  # > this many days → moderate penalty
+  inactive_moderate_days: 270   # > this many days → moderate penalty
   inactive_moderate_mult: 0.75
+  inactive_light_days:    120   # > this many days → light penalty (new tier)
+  inactive_light_mult:    0.88  # catches candidates inactive 4-9 months
 
   # Open-to-work flag
   not_open_mult: 0.85          # Candidate is not flagged as open to work
+  # Compound: not open AND inactive — genuinely unreachable combination
+  not_open_inactive_compound_days: 90   # if also inactive > this many days
+  not_open_inactive_compound_mult: 0.88 # extra multiplier on top of not_open_mult
 
-  # Recruiter response rate
-  low_response_rate_threshold: 0.10  # < this → penalty
-  low_response_mult: 0.90
+  # Recruiter response rate — JD says high RRR is a strong behavioral signal
+  low_response_rate_threshold: 0.10   # < this → hard penalty (ghost-level)
+  low_response_mult: 0.88
+  moderate_response_rate_threshold: 0.40  # < this → soft penalty
+  moderate_response_mult: 0.94
 
   # Notice period modifiers
-  notice_ideal_days:    30     # <= this → no penalty
-  notice_mild_days:     60     # <= this → mild penalty
-  notice_moderate_days: 90    # <= this → moderate penalty
+  # JD says: "We'd love sub-30-day notice. 30+ day notice — bar gets higher."
+  notice_ideal_days:    30     # <= this → no penalty (includes exactly 30)
+  notice_mild_days:     45     # <= this → mild penalty (36–45 days)
+  notice_moderate_days: 90    # <= this → moderate penalty (46–90 days)
   notice_ideal_mult:    1.00
-  notice_mild_mult:     0.95
-  notice_moderate_mult: 0.90
-  notice_bad_mult:      0.75  # > notice_moderate_days
+  notice_mild_mult:     0.95   # 31–45 days — needs buyout, minor penalty
+  notice_moderate_mult: 0.88   # 46–90 days — significant barrier
+  notice_bad_mult:      0.75  # > 90 days
 
-  # Location modifiers
+  # Location modifiers — sourced from JD contract location_tier_multiplier bands
+  # Tier 1 (preferred): Pune, Noida, Gurgaon, Delhi NCR region
   location_pune_noida_mult:        1.00
-  location_welcome_cities_mult:    1.00  # hyderabad, mumbai (with relocation)
-  location_welcome_no_reloc:       0.98
-  location_india_willing_mult:     0.95
-  location_india_no_reloc_mult:    0.92
-  location_abroad_willing_mult:    0.90
-  location_abroad_no_reloc_mult:   0.85
+  # Tier 2 (welcome): Hyderabad, Mumbai — only listed cities in the JD
+  location_welcome_cities_mult:    0.98  # with relocation willingness
+  location_welcome_no_reloc:       0.96  # without relocation willingness
+  # Tier 3: Any other Indian city not in the JD-listed acceptable set
+  # These candidates face real logistics friction even if they claim willingness
+  location_india_willing_mult:     0.91  # willing to relocate from unlisted city
+  location_india_no_reloc_mult:    0.86  # NOT willing to relocate — strong penalty
+  location_abroad_willing_mult:    0.88  # outside India; case-by-case per JD
+  location_abroad_no_reloc_mult:   0.80
 
   # Combined multiplier floors
-  logistical_floor:  0.75  # Logistics group cannot reduce score by > 25%
+  logistical_floor:  0.65  # Logistics group can reduce score by up to 35%
+                            # (lowered from 0.75 — lets severe notice+location penalties compound)
   combined_floor:    0.25  # Full chain cannot reduce score by > 75%
 
   # Honeypot kill switch (applied if impossible_flag or suspicious_flag == True)
   honeypot_multiplier: 0.01  # Forces score to ≤ 1.0 on 100.0 scale
 
   # Soft honeypot score compound penalty (non-flagged suspicious profiles)
-  honeypot_score_penalty_factor: 0.40  # honeypot_mult = 1.0 - (score * this)
+  honeypot_score_penalty_factor: 2.00  # honeypot_mult = 1.0 - (score * this)
 
   # Additive bonuses
   ninety_day_bonus_max: 8.0   # ninety_day_alignment (0-1) * this
+  bonus_zero_phase4_score: 50.0  # below this, additive bonuses should not rescue weak fit
+  bonus_full_phase4_score: 80.0  # at/above this, full additive bonuses apply
 
   # Floor for penalty_mult below which score is forced to 0.0
   penalty_floor_zero: 0.20
@@ -176,7 +195,7 @@ honeypot:
   s3_expert_short_duration: 0.15  # Expert skill with duration_months < 12 (per occurrence, cap 0.30)
   s4_maxed_signals:         0.20  # All redrob_signals simultaneously maxed
   s5_github_zero_senior:    0.15  # github_activity_score=0 with 8+ years claimed ML
-  s6_uniform_descriptions:  0.10  # All career descriptions statistically uniform length
+  s6_uniform_descriptions:  0.50  # All career descriptions identical/uniform (HUGE fake resume signal)
   suspicious_threshold:     0.70  # honeypot_score > this → suspicious_flag = True
 
 # ---------------------------------------------------------------------------

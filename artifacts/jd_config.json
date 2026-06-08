@@ -1,6 +1,6 @@
 {
   "source_contract": "metadata/JD_contract.yaml",
-  "source_jd_text": "Resources/job_description.txt",
+  "source_jd_text": "job_description.txt",
   "contract_version": "10.0-final",
   "role_intent": "Redrob Senior AI Engineer JD intent contract. Optimized for retrieval/ranking/search ownership, evaluation culture, product execution, and candidate hireability.",
   "must_have": [

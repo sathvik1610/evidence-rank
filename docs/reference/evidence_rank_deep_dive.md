@@ -51,7 +51,7 @@
 Also runs sub-phases offline:
 - **Phase 1d:** RRF retrieval → `retrieval_scores.parquet`
 - **Phase 1c:** Feature extraction on top 5,000 → `candidate_features.parquet`
-- **Phase 1b:** Cross-encoder on top 500 → `cross_encoder_scores.parquet`
+- **Phase 1e:** Cross-encoder on top 5,000 RRF candidates → `cross_encoder_scores.parquet`
 
 ---
 
@@ -315,7 +315,7 @@ The atomic unit. Everything flows from this.
 | `candidate_flags.parquet` | `is_honeypot`, `is_ghost`, `product_ratio`, `consulting_only`, `research_only`, `wrong_domain` per candidate | Hard exclusions + career quality inputs |
 | `retrieval_scores.parquet` | `candidate_id` + `rrf_score` for top 5,000 | The gate into the full pipeline |
 | `candidate_features.parquet` | All Bucket A/B/C values + snippets + behavioral + consistency score | Everything Phase 4/5/6 needs |
-| `cross_encoder_scores.parquet` | `candidate_id` + `cross_encoder_score` for top 500 | Semantic tiebreaker at Phase 4 |
+| `cross_encoder_scores.parquet` | `candidate_id` + `ce_raw_score` + normalized `ce_score` for top 5,000 | Semantic tiebreaker at Phase 4 |
 
 ---
 
@@ -365,7 +365,7 @@ candidates.jsonl (100K profiles)
      │
      ▼
 [Phase 1b: Cross-Encoder Inference] ─────────────────────────────────── OFFLINE
-     │  bge-reranker-v2-m3 on top 500 candidates
+     │  bge-reranker-v2-m3 on top 5,000 RRF candidates
      │  ~2.5 min on CPU
      │  → cross_encoder_scores.parquet
      │
@@ -637,7 +637,7 @@ All tunable via `weights.yaml` — **no Python code changes needed.** Edit `weig
 | `src/explainer.py` | Reason generation with 90-day milestone framing | Phase 6 — zero LLM calls; pure string templates from evidence snippets |
 | `artifacts/candidate_features.parquet` | Precomputed Bucket A/B/C for all retrieved candidates | The single most important artifact — everything Phase 4/5/6 reads from here |
 | `artifacts/retrieval_scores.parquet` | RRF scores for top 5,000 | The gate into the scoring pipeline |
-| `artifacts/cross_encoder_scores.parquet` | Cross-encoder scores for top 500 | Semantic tiebreaker |
+| `artifacts/cross_encoder_scores.parquet` | Cross-encoder raw logits and normalized scores for top 5,000 | Semantic tiebreaker |
 | `artifacts/candidate_flags.parquet` | Honeypot/ghost/disqualifier flags | Hard exclusions — must be correct |
 | `artifacts/faiss_index.bin` | FAISS IndexFlatIP of all 100K profiles | Used offline only for retrieval |
 | `artifacts/jd_skills_vector.npy` + `jd_ideal_vector.npy` | Two JD embedding variants | Core of the dual-vector retrieval strategy |

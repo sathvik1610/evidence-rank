@@ -47,7 +47,7 @@ TARGET_SKILLS: Dict[str, List[str]] = JD_FEATURE_CONTRACT["target_skills"]
 # ---------------------------------------------------------------------------
 
 def _build_career_text(candidate: Dict[str, Any]) -> str:
-    """Concatenate all career description text into a single string for regex search."""
+    """Concatenate titles + descriptions for broad domain-detection (sys_experience, deploy)."""
     parts = []
     for role in candidate.get("career_history", []):
         title = role.get("title", "")
@@ -57,6 +57,22 @@ def _build_career_text(candidate: Dict[str, Any]) -> str:
         if desc:
             parts.append(desc)
     return " ".join(parts)
+
+
+def _build_career_desc_text(candidate: Dict[str, Any]) -> str:
+    """Descriptions-only text for Bucket A evidence scoring.
+
+    Titles are intentionally excluded: a title like 'Recommendation Systems Engineer'
+    without a matching role description should score at skills-only level (1.0), not
+    career-text level (2.0). This prevents title inflation of must_have_score.
+    """
+    parts = []
+    for role in candidate.get("career_history", []):
+        desc = role.get("description", "")
+        if desc:
+            parts.append(desc)
+    return " ".join(parts)
+
 
 
 def _skill_names_lower(candidate: Dict[str, Any]) -> List[str]:
@@ -149,6 +165,19 @@ def score_skill_bucket(
 
 _OWNERSHIP_PATTERNS = JD_FEATURE_CONTRACT["ownership_patterns"]
 
+# Chatbot-dominant patterns: customer-support bots ≠ search/ranking work.
+# When the CURRENT role description matches these AND lacks retrieval/ranking context,
+# experience_recency is penalised to 0.3 (below the neutral 0.5 for unrelated roles).
+_CHATBOT_DOMINANT_PATTERNS = [
+    r"customer\s+support\s+chatbot",
+    r"support\s+chatbot",
+    r"chatbot\s+integrated\s+with",
+    r"answer[\-\s]+generation\s+layer",
+    r"ticketing\s+system.*chatbot",
+    r"chatbot.*ticketing\s+system",
+    r"document\s+ingestion\s+pipeline.*chatbot",
+]
+
 
 def compute_product_ratio(candidate: Dict[str, Any]) -> float:
     """
@@ -197,12 +226,31 @@ def score_career_quality(
     # Experience recency: is the most recent role in a relevant domain?
     # Career history is typically ordered most-recent first (index 0 = current).
     recent_role = career[0] if career else {}
-    recent_desc = recent_role.get("description", "")
+    recent_desc = (recent_role.get("description") or "")
     recent_relevant = any(
         re.search(p, recent_desc, re.IGNORECASE)
         for p in RETRIEVAL_PATTERNS + RANKING_PATTERNS
     )
-    experience_recency = 1.0 if recent_relevant else 0.5
+    recent_ranking_or_recsys = any(
+        re.search(p, recent_desc, re.IGNORECASE)
+        for p in RANKING_PATTERNS + RECOMMENDATION_PATTERNS
+    )
+    # Chatbot-dominant detection: customer-support bots are clearly off-topic.
+    # If current role has chatbot signals but zero retrieval/ranking signals, apply
+    # a below-neutral recency score (0.3 < 0.5 generic-mismatch default).
+    recent_is_chatbot_only = (
+        not recent_ranking_or_recsys
+        and any(
+            re.search(p, recent_desc, re.IGNORECASE)
+            for p in _CHATBOT_DOMINANT_PATTERNS
+        )
+    )
+    if recent_is_chatbot_only:
+        experience_recency = 0.3   # Customer-support chatbot ≠ ranking/search
+    elif recent_relevant:
+        experience_recency = 1.0
+    else:
+        experience_recency = 0.5
 
     # Depth signal: retrieval/ranking work appears across multiple roles
     roles_with_retrieval = sum(
@@ -222,10 +270,16 @@ def score_career_quality(
             RECOMMENDATION_PATTERNS + SYSTEM_SEMANTICS_PATTERNS
         )
     )
+    has_ranking_or_recsys_evidence = any(
+        re.search(p, career_text, re.IGNORECASE)
+        for p in RANKING_PATTERNS + RECOMMENDATION_PATTERNS
+    )
     has_sys_production = has_sys_evidence and any(
         re.search(p, career_text, re.IGNORECASE) for p in PRODUCTION_PATTERNS
     )
     sys_experience_score = 1.0 if has_sys_production else (0.5 if has_sys_evidence else 0.0)
+    if recent_is_chatbot_only and not has_ranking_or_recsys_evidence:
+        sys_experience_score = min(sys_experience_score, 0.5)
 
     # Shipper vs Researcher ratio
     shipper_count = sum(
@@ -508,10 +562,11 @@ def extract_features(
     Returns:
         flat feature dict matching the candidate_features.parquet schema
     """
-    career_text = _build_career_text(candidate)
+    career_text = _build_career_text(candidate)       # titles + descriptions (broad domain signals)
+    career_desc_text = _build_career_desc_text(candidate)  # descriptions only (Bucket A evidence)
 
-    # Bucket A
-    bucket_a, snippets = score_skill_bucket(candidate, career_text)
+    # Bucket A — use descriptions-only to prevent title inflation of must_have_score
+    bucket_a, snippets = score_skill_bucket(candidate, career_desc_text)
 
     # Bucket B
     bucket_b = score_career_quality(candidate, career_text, flags)

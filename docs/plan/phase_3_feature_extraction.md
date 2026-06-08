@@ -33,6 +33,8 @@ Verified Redrob skill assessments can add a small capped bonus when the skill is
 
 Important guardrail: skill-list matches alone are intentionally weak. This prevents keyword-stuffed profiles from outranking candidates with actual shipped systems.
 
+Bucket A searches career descriptions only. Job titles are excluded from the 2.0/3.0 evidence path because a title such as `Recommendation Systems Engineer` can otherwise inflate a weak chatbot or support role. Titles still contribute to broader career-quality/domain context where appropriate.
+
 ### 7.4 Bucket B - Career Quality
 
 Bucket B computes:
@@ -50,6 +52,8 @@ Bucket B computes:
 `product_builder_score` is a first-class JD signal because the role wants a product engineer who has shipped ranking/search/recommendation systems, not a pure researcher or generic AI wrapper user.
 
 Consulting-only, pure-research, and wrong-domain penalties are read from the YAML contract multipliers.
+
+Current-role recency has a chatbot-dominant guard: if the most recent role is a customer-support chatbot / ticketing chatbot role with no ranking or recommendation-system evidence, `experience_recency` is set below neutral (`0.3`) instead of being treated as generic adjacent ML work. Vector DB or embedding usage inside a support chatbot is adjacent evidence, but it is not enough to satisfy the JD's ranking/search ownership intent. If the broader career has no ranking/recommendation evidence, chatbot-only production retrieval is capped at partial system evidence (`sys_experience_score <= 0.5`).
 
 ### 7.5 Bucket C - Fit Gaps
 

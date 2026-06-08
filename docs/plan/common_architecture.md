@@ -50,9 +50,9 @@ The system executes in two strictly separated environments:
 - Phase 1: Encode all 100K candidate profile texts via BGE-M3 (dense + learned-sparse only) → save dense matrix as FAISS `IndexFlatIP` + save sparse outputs as a single consolidated `candidate_sparse_matrix.npz` CSR matrix
 - Phase 1b: Build traditional `rank_bm25` lexical index on normalized candidate text fields
 - **Phase 1f: Honeypot Audit Pass** — separate pure-JSON structural validation pass (no ML, no embeddings). Runs two-tier detection: `impossible_flag` (hard structural contradictions) and `honeypot_score` (0.0–1.0 soft weighted sum). Computes `suspicious_flag = honeypot_score > 0.70`. Saves all three to `candidate_flags.parquet`. **Must run after Phase 1 text encoding, before Phase 1d RRF scoring.**
-- Phase 1d: Compute 5-way RRF retrieval scores offline; save top-5000 to `retrieval_scores.parquet`
+- Phase 1d: Compute 5-way RRF retrieval scores offline, excluding Phase 1f ghost profiles; save top-5000 to `retrieval_scores.parquet`
 - Phase 1c: Extract candidate features offline (Bucket A/B/C) on only the top 5,000 retrieved candidates; save to `candidate_features.parquet`
-- Phase 1e: Run cross-encoder on top 500 candidates offline; save to `cross_encoder_scores.parquet`
+- Phase 1e: Run cross-encoder on the top 5,000 RRF candidates offline; save raw logits as `ce_raw_score` and normalized 0-100 scores as `ce_score` to `cross_encoder_scores.parquet`
 
 **Runtime Ranking Engine (`rank.py`, must complete in under 5 minutes on CPU, no network):**
 - Input guard: read `candidate_id` values from `--candidates` and filter precomputed features to that exact input file. If there is no overlap, exit and require a fresh preprocess run.
@@ -169,7 +169,6 @@ Stage B should function as a lightweight ranking system operating primarily on p
 ├── src/
 │   ├── __init__.py
 │   ├── jd_intelligence.py          # Phase 0: YAML/JD-derived query, HyDE, and BM25 keyword generation
-│   ├── retriever.py               # Phase 2: 5-way RRF (FAISS + CSR dot-product + BM25)
 │   ├── features.py                # Phase 3: Bucket A/B/C extraction
 │   ├── scorer.py                  # Phase 4: Weighted scoring formula
 │   ├── reranker.py                # Phase 4: Cross-encoder reranking
@@ -192,7 +191,7 @@ Stage B should function as a lightweight ranking system operating primarily on p
     ├── candidate_flags.parquet      # Phase 1f: impossible_flag (bool), honeypot_score (float), suspicious_flag (bool), is_ghost (bool), disqualifier tags
     ├── retrieval_scores.parquet     # Phase 1d: Precomputed 5-way RRF scores (top 5000 candidates)
     ├── candidate_features.parquet   # Phase 1c: Precomputed Bucket A/B/C features for retrieved candidates
-    └── cross_encoder_scores.parquet # Phase 1e: Precomputed bge-reranker-v2-m3 scores for top 500 candidates
+    └── cross_encoder_scores.parquet # Phase 1e: Precomputed bge-reranker-v2-m3 scores for top 5,000 candidates (`ce_raw_score`, normalized `ce_score`)
 ```
 
 **What each key file does:**
@@ -211,15 +210,15 @@ Stage B should function as a lightweight ranking system operating primarily on p
 
 `app.py` — HuggingFace Spaces demo sandbox. Heuristic BM25-only path; no transformer model loads. Accepts small JSON payloads for interactive demonstration.
 
-`src/retriever.py` — At preprocess time: 5-way RRF (3 dense FAISS searches + 1 learned-sparse CSR dot-product + 1 BM25) → saves `retrieval_scores.parquet`. At rank time: loads parquet, filters to top N.
+`preprocess.py::run_phase_1d_rrf` — At preprocess time: 5-way RRF (3 dense FAISS searches + 1 learned-sparse CSR dot-product + 1 BM25), with `retrieval.rrf_k` from `weights.yaml` and ghost profiles excluded, saves `retrieval_scores.parquet`. At rank time: `rank.py` loads parquet and filters to top N.
 
 `src/features.py` — At preprocess time: YAML-contract-driven Bucket A/B/C extraction on all retrieved candidates → saves `candidate_features.parquet`. At rank time: loads parquet.
 
 `src/scorer.py` — Weighted formula: must-have (55%), nice-to-have (10%), career quality (15%), product builder (20%). Pure pandas/numpy; no model calls.
 
-`src/reranker.py` — At preprocess time only: cross-encoder scoring using `bge-reranker-v2-m3` on top 500 → saves `cross_encoder_scores.parquet`. At rank time: loads parquet, merges scores.
+`src/reranker.py` — Runtime cross-encoder merge. `preprocess.py` scores the top 5,000 with `bge-reranker-v2-m3` and saves raw plus normalized scores. At rank time, `src/reranker.py` loads the parquet, guards legacy raw-logit artifacts by normalizing `ce_score` when needed, and merges scores.
 
-`src/behavioral.py` — Multiplicative modifiers: availability, notice, YAML-derived location bands, social proof, seniority, writing signal, soft penalties, floor-exempt disqualifier handling, and 90-day bonus.
+`src/behavioral.py` — Multiplicative modifiers: availability, notice, YAML-derived location bands, seniority, writing signal, soft penalties, floor-exempt disqualifier handling, and technical-fit-gated social proof / 90-day bonuses.
 
 `src/explainer.py` — Reason generation with 90-day plan framing and evidence injection.
 
@@ -270,7 +269,7 @@ from constants import CANDIDATE_SPARSE_PATH, JD_SPARSE_PATH
 scipy.sparse.save_npz(CANDIDATE_SPARSE_PATH, candidate_csr)
 scipy.sparse.save_npz(JD_SPARSE_PATH, query_csr)
 
-# src/retriever.py (read side)
+# rank/preprocess read side
 from constants import CANDIDATE_SPARSE_PATH, JD_SPARSE_PATH, FAISS_INDEX_PATH
 candidate_csr = scipy.sparse.load_npz(CANDIDATE_SPARSE_PATH)
 jd_sparse     = scipy.sparse.load_npz(JD_SPARSE_PATH)

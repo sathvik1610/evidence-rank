@@ -290,7 +290,7 @@ product_builder_score = 0.35 × product_ratio
 ### 4F. Cross-Encoder Merge
 
 ```
-phase4_score = 0.80 × core_score + 0.20 × cross_encoder_score
+phase4_score = 0.80 × core_score + 0.20 × ce_score
 ```
 
 | Parameter | Value | Tuning Note |

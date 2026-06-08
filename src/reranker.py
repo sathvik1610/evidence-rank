@@ -12,6 +12,41 @@ import constants
 from src.weights import W
 
 
+def normalize_ce_scores(ce_df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Ensure cross-encoder scores are on the same 0-100 scale as core_score.
+
+    FlagReranker returns raw logits that are often around -8..3. Older artifacts
+    may therefore contain raw scores. New preprocess runs save ce_raw_score plus
+    normalized ce_score, but rank.py still guards legacy artifacts here.
+    """
+    if "ce_score" not in ce_df.columns or ce_df.is_empty():
+        return ce_df
+
+    stats = ce_df.select(
+        pl.col("ce_score").min().alias("min_score"),
+        pl.col("ce_score").max().alias("max_score"),
+    ).row(0, named=True)
+    min_score = stats["min_score"]
+    max_score = stats["max_score"]
+
+    if min_score is None or max_score is None:
+        return ce_df
+
+    # Already normalized; leave untouched.
+    if min_score >= 0.0 and max_score <= 100.0 and max_score > 10.0:
+        return ce_df
+
+    if max_score == min_score:
+        return ce_df.with_columns(pl.lit(50.0).alias("ce_score"))
+
+    return ce_df.with_columns(
+        (((pl.col("ce_score") - min_score) / (max_score - min_score)) * 100.0)
+        .clip(0.0, 100.0)
+        .alias("ce_score")
+    )
+
+
 def merge_cross_encoder_scores(scored_df: pl.DataFrame) -> pl.DataFrame:
     """
     Left-joins the precomputed cross-encoder scores and applies the
@@ -24,7 +59,7 @@ def merge_cross_encoder_scores(scored_df: pl.DataFrame) -> pl.DataFrame:
             pl.col("core_score").alias("final_phase4_score")
         )
 
-    ce_df = pl.read_parquet(constants.CROSS_ENCODER_SCORES_PARQUET)
+    ce_df = normalize_ce_scores(pl.read_parquet(constants.CROSS_ENCODER_SCORES_PARQUET))
 
     # Left join CE scores
     merged_df = scored_df.join(ce_df, on="candidate_id", how="left")

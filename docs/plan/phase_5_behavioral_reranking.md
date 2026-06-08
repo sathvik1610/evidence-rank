@@ -45,6 +45,7 @@ The group is floor-capped through `behavioral.logistical_floor` in `weights.yaml
 - title velocity
 - code-stopped risk
 - LangChain-only risk
+- current chatbot-adjacent role without ranking/eval depth
 - keyword-stuffer penalty
 - remote-only preference
 - research-only
@@ -80,7 +81,7 @@ The exemption list is read from `metadata.JD_contract.yaml`.
 - LinkedIn connection
 - fast response behavior
 
-These boosts are additive and capped so they cannot replace technical fit.
+These boosts are additive, capped, and scaled by `technical_bonus_scale(final_phase4_score)` so they cannot replace technical fit. Below `behavioral.bonus_zero_phase4_score`, additive bonuses contribute `0`; at or above `behavioral.bonus_full_phase4_score`, they contribute fully.
 
 ### 9.8 Final Score
 
@@ -88,8 +89,8 @@ These boosts are additive and capped so they cannot replace technical fit.
 
 ```text
 final = final_phase4_score * combined_multiplier
-      + ninety_day_bonus
-      + social_proof_boost
+      + (ninety_day_bonus * technical_bonus_scale)
+      + (social_proof_boost * technical_bonus_scale)
 ```
 
 Honeypot or suspicious profiles short-circuit to the honeypot multiplier. Candidates with extreme penalty stacks can be forced to `0.0` through `behavioral.penalty_floor_zero`.

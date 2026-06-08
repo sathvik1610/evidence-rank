@@ -338,7 +338,7 @@ def _compute_honeypot_score(candidate: dict) -> float:
         
     # S-6
     desc_lengths = [len(r.get("description", "")) for r in career if r.get("description")]
-    if len(desc_lengths) >= 3:
+    if len(desc_lengths) >= 2:
         mean_len = sum(desc_lengths) / len(desc_lengths)
         variance = sum((l - mean_len)**2 for l in desc_lengths) / len(desc_lengths)
         if variance < 100:
@@ -413,9 +413,27 @@ def run_phase_1f_honeypots(candidates):
         
         cv_terms = set(feature_contract["wrong_domain_terms"])
         nlp_terms = set(feature_contract["wrong_domain_escape_terms"])
+        current_role = next((r for r in career if r.get("is_current")), career[0] if career else {})
+        current_text = " ".join([
+            str(current_role.get("title") or ""),
+            str(current_role.get("description") or ""),
+        ]).lower()
+        current_has_cv = any(t in current_text for t in cv_terms)
+        current_has_nlp = any(t in current_text for t in nlp_terms)
+        nlp_roles = sum(
+            1 for r in career
+            if any(t in (r.get("description", "") or "").lower() for t in nlp_terms)
+        )
         has_cv = any(t in desc_text or any(t in s for s in skills_lower) for t in cv_terms)
-        has_nlp = any(t in desc_text or any(t in s for s in skills_lower) for t in nlp_terms)
-        wrong_domain = has_cv and not has_nlp
+        # Wrong-domain escape requires career-description evidence. Skill-list
+        # keyword stuffing (e.g. BM25/LlamaIndex in skills only) should not let
+        # pure CV/speech/robotics profiles avoid the domain penalty.
+        has_nlp = any(t in desc_text for t in nlp_terms)
+        # If the current role itself is CV/speech/robotics and lacks current
+        # search/ranking/NLP evidence, require at least two relevant historical
+        # roles before escaping the JD's wrong-domain penalty.
+        primary_wrong_domain = current_has_cv and not current_has_nlp and nlp_roles < 2
+        wrong_domain = (has_cv and not has_nlp) or primary_wrong_domain
 
         # BUG 2 FIX: Compute contradiction counts for consistency_score in behavioral.py
         # contradiction_skill_duration: skills claimed longer than career timeline + 48mo buffer
@@ -467,6 +485,14 @@ def run_phase_1d_rrf():
     index = faiss.read_index(constants.FAISS_INDEX_BIN)
     with open(constants.CANDIDATE_IDS_JSON, "r") as f:
         all_ids = json.load(f)
+
+    ghost_ids = set()
+    if os.path.exists(constants.CANDIDATE_FLAGS_PARQUET):
+        flags_df = pl.read_parquet(constants.CANDIDATE_FLAGS_PARQUET)
+        if "is_ghost" in flags_df.columns:
+            ghost_ids = set(
+                flags_df.filter(pl.col("is_ghost") == True)["candidate_id"].to_list()
+            )
         
     jd_v1 = np.load(constants.JD_V1_SKILLS_NPY).astype(np.float32)
     jd_recsys = np.load(constants.JD_HYDE_RECSYS_NPY).astype(np.float32)
@@ -477,9 +503,9 @@ def run_phase_1d_rrf():
     _, idx1 = index.search(jd_v1, k=k_search)
     _, idx2 = index.search(jd_recsys, k=k_search)
     _, idx3 = index.search(jd_eval, k=k_search)
-    dense_ids_v1 = [all_ids[i] for i in idx1[0]]
-    dense_ids_recsys = [all_ids[i] for i in idx2[0]]
-    dense_ids_eval = [all_ids[i] for i in idx3[0]]
+    dense_ids_v1 = [all_ids[i] for i in idx1[0] if all_ids[i] not in ghost_ids]
+    dense_ids_recsys = [all_ids[i] for i in idx2[0] if all_ids[i] not in ghost_ids]
+    dense_ids_eval = [all_ids[i] for i in idx3[0] if all_ids[i] not in ghost_ids]
     
     # 4: Sparse
     candidate_csr = scipy.sparse.load_npz(constants.CANDIDATE_SPARSE_NPZ)
@@ -498,7 +524,7 @@ def run_phase_1d_rrf():
     # YAML-derived query rows instead of only the first skills row.
     sparse_scores = candidate_csr.dot(jd_sparse.T).toarray().max(axis=1)
     top_sparse_idx = np.argsort(sparse_scores)[::-1][:k_search]
-    sparse_ids = [all_ids[i] for i in top_sparse_idx]
+    sparse_ids = [all_ids[i] for i in top_sparse_idx if all_ids[i] not in ghost_ids]
     
     # 5: BM25
     with open(constants.BM25_INDEX_PKL, "rb") as f:
@@ -509,10 +535,10 @@ def run_phase_1d_rrf():
     query_tokens = normalize_text(" ".join(keywords)).split()
     bm25_scores = bm25.get_scores(query_tokens)
     top_bm25_idx = np.argsort(bm25_scores)[::-1][:k_search]
-    sparse_ids_bm25 = [all_ids[i] for i in top_bm25_idx]
+    sparse_ids_bm25 = [all_ids[i] for i in top_bm25_idx if all_ids[i] not in ghost_ids]
     
     # RRF fusion
-    def rrf(ranked_lists, k=60):
+    def rrf(ranked_lists, k=int(W["retrieval.rrf_k"])):
         scores = {}
         for ranked in ranked_lists:
             for rank_idx, cand_id in enumerate(ranked):
@@ -593,7 +619,23 @@ def run_phase_1e_cross_encoder(candidates, model):
             batch_scores = [batch_scores]
         scores.extend(batch_scores)
         
-    df = pd.DataFrame({"candidate_id": pair_cids, "ce_score": scores})
+    raw_scores = np.asarray(scores, dtype=np.float32)
+    if len(raw_scores) == 0:
+        norm_scores = raw_scores
+    elif float(raw_scores.max()) == float(raw_scores.min()):
+        norm_scores = np.full_like(raw_scores, 50.0, dtype=np.float32)
+    else:
+        norm_scores = (
+            (raw_scores - raw_scores.min())
+            / (raw_scores.max() - raw_scores.min())
+            * 100.0
+        ).astype(np.float32)
+
+    df = pd.DataFrame({
+        "candidate_id": pair_cids,
+        "ce_raw_score": raw_scores,
+        "ce_score": norm_scores,
+    })
     df.to_parquet(constants.CROSS_ENCODER_SCORES_PARQUET)
     print(f"Cross-encoder scores saved to {constants.CROSS_ENCODER_SCORES_PARQUET}")
 

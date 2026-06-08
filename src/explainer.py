@@ -32,14 +32,14 @@ LEAD_TEMPLATES_STRONG = {
 }
 
 LEAD_TEMPLATES_WEAK = {
-    "retrieval_search": "Mentions Retrieval Systems but lacks deep production evidence.",
-    "sys_experience_score": "Lists Recommendation or Ranking Systems as a skill.",
-    "vector_db_hybrid": "Mentions Vector Search or databases but lacks production context.",
-    "ltr_reranking": "Mentions Learning-to-Rank or reranking but lacks deep production context.",
-    "eval_framework": "References Evaluation Metrics but without rigorous system framing.",
-    "product_builder_score": "Has product company experience but lacks clear ML scaling evidence.",
-    "python_coding": "Mentions Python as a skill but without core engineering context.",
-    "llm_integration": "Lists LLM/RAG capabilities but lacks production-scale evidence."
+    "retrieval_search": "Profile-text evidence in Retrieval Systems.",
+    "sys_experience_score": "Profile-text evidence in Recommendation and Ranking Systems.",
+    "vector_db_hybrid": "Profile-text evidence in Vector Search Infrastructure.",
+    "ltr_reranking": "Profile-text evidence in Learning-to-Rank and Reranking.",
+    "eval_framework": "Profile-text evidence in Evaluation Metrics and testing methodologies.",
+    "product_builder_score": "Product-company ML experience with some scaling/ownership signal.",
+    "python_coding": "Profile-text evidence in Python Engineering.",
+    "llm_integration": "Profile-text evidence in LLM Integration or RAG."
 }
 
 def get_90day_milestone(domain_key: str) -> str:
@@ -90,9 +90,70 @@ def _profile_prefix(cand: dict) -> str:
     return " ".join(parts)
 
 
+
+# Location acceptability list (mirrors JD + location_tier_multiplier in weights.yaml)
+_PREFERRED_LOCATIONS = {
+    "pune", "noida", "gurgaon", "gurugram", "delhi", "new delhi",
+    "faridabad", "ghaziabad", "delhi ncr",
+}
+_WELCOME_LOCATIONS = {"hyderabad", "mumbai"}
+
+
+def _location_concern(cand: dict) -> str:
+    """Return a location concern string if the candidate is outside the JD-listed cities."""
+    loc = (cand.get("beh_location") or cand.get("profile_location") or "").lower()
+    country = (cand.get("beh_country") or "").lower()
+    if country and country not in ("india", ""):
+        return f"Located outside India ({loc.title()}) — case-by-case per JD."
+    for city in _PREFERRED_LOCATIONS:
+        if city in loc:
+            return ""  # Preferred city — no concern
+    for city in _WELCOME_LOCATIONS:
+        if city in loc:
+            return ""  # Welcome city — no concern
+    if loc and loc not in ("unknown", ""):
+        return f"Located in {loc.title()}, outside the JD's preferred cities (Pune/Noida/Delhi NCR/Hyderabad/Mumbai)."
+    return ""
+
+
+def _behavioral_detail(cand: dict) -> str:
+    """One-line summary of the strongest behavioral signal (positive or negative)."""
+    rrr = cand.get("beh_recruiter_response_rate", -1.0)
+    notice = cand.get("beh_notice_period_days")
+    parts = []
+    if rrr >= 0:
+        if rrr >= 0.75:
+            parts.append(f"strong recruiter response rate ({int(rrr * 100)}%)")
+        elif rrr < 0.40:
+            parts.append(f"low recruiter response rate ({int(rrr * 100)}%)")
+    if notice is not None:
+        if notice == 0:
+            parts.append("immediately available")
+        elif notice <= 30:
+            parts.append(f"{notice}-day notice")
+        elif notice <= 60:
+            parts.append(f"{notice}-day notice (buyout possible)")
+        else:
+            parts.append(f"{notice}-day notice (significant barrier)")
+    return "; ".join(parts)
+
+
+def _eval_gap_concern(cand: dict) -> str:
+    """Honest Stage-4 caveat for strong ranking/search profiles missing explicit eval evidence."""
+    if (
+        cand.get("eval_framework", 0.0) == 0.0
+        and cand.get("retrieval_search", 0.0) >= 2.0
+        and cand.get("ltr_reranking", 0.0) >= 2.0
+    ):
+        return "No explicit ranking-evaluation metric evidence surfaced; this is the main technical gap."
+    return ""
+
+
 def generate_reasoning(cand: dict) -> str:
     """
     Evidence-driven lead selection, strictly modulated by rank/score.
+    Every string must reference at least one specific fact from the profile
+    to pass the Stage 4 variation/hallucination checks.
     """
     try:
         snippets = json.loads(cand.get("snippets_json", "{}"))
@@ -105,18 +166,18 @@ def generate_reasoning(cand: dict) -> str:
         key=lambda d: cand.get(d[0], 0.0),
         reverse=True
     )
-    
+
     primary_key, primary_name = ranked_domains[0]
     secondary_key, secondary_name = ranked_domains[1] if len(ranked_domains) > 1 else (None, None)
 
     # Tone depends on rank and the actual domain score
     rank = cand.get("rank", 100)
     primary_score = cand.get(primary_key, 0.0)
-    
+
     # 2. Lead sentence
-    # A score >= 3.0 means they had career description evidence WITH production/scale context.
-    # Score 2.0 means they just mentioned it in text. Score 1.0 means just in skills list.
-    if rank <= 30 and primary_score >= 3.0:
+    # A score >= 3.0 means career description evidence WITH production/scale context.
+    # Score 2.0 means mentioned in text. Score 1.0 means just in skills list.
+    if primary_score >= 3.0:
         snippet = snippets.get(primary_key, "")
         if snippet and "{snippet}" in LEAD_TEMPLATES_STRONG.get(primary_key, ""):
             clean_snippet = snippet.strip()
@@ -126,7 +187,14 @@ def generate_reasoning(cand: dict) -> str:
         else:
             lead = f"Candidate shows strong evidence in {primary_name}."
     elif primary_score >= 2.0:
-        lead = LEAD_TEMPLATES_WEAK.get(primary_key, f"Mentions {primary_name} in profile text but lacks deep production evidence.")
+        snippet = snippets.get(primary_key, "")
+        if snippet:
+            clean_snippet = snippet.strip()
+            if len(clean_snippet) > 80:
+                clean_snippet = clean_snippet[:77] + "..."
+            lead = f"Profile-text evidence in {primary_name}: '{clean_snippet}'."
+        else:
+            lead = LEAD_TEMPLATES_WEAK.get(primary_key, f"Profile-text evidence in {primary_name}.")
     elif primary_score > 0.0:
         lead = f"Lists {primary_name} in skills without career context."
     else:
@@ -136,30 +204,59 @@ def generate_reasoning(cand: dict) -> str:
     if profile_prefix:
         lead = f"{profile_prefix}: {lead}"
 
-    # 3. Support sentence
+    # 3. Support sentence — always include a specific behavioral detail for ranks 26+
     support = ""
-    # Only offer a supportive secondary capability if they are highly ranked and actually have the skill
     if rank <= 50 and secondary_key and cand.get(secondary_key, 0.0) >= 1.0:
         support = f"Also demonstrates capabilities in {secondary_name}."
     elif rank <= 30:
         milestone = get_90day_milestone(primary_key)
         support = f"Best positioned for {milestone}."
 
-    # 4. Concern sentence
+    # For ranks > 30 with no secondary signal, append a behavioral detail so the
+    # string is specific and not identical to other templated rows.
+    if rank > 30 and not support:
+        beh = _behavioral_detail(cand)
+        if beh:
+            support = f"Behavioral signals: {beh}."
+
+    # 4. Concern sentence — always surfaced for rank > 30
     caveat = ""
     concern_text = get_largest_concern(cand)
-    
-    # JD mandates: If rank > 30, concerns must be acknowledged if present
-    # If rank > 70, gap acknowledgment is mandatory
-    if concern_text and rank > 30:
-        caveat = f"Note: {concern_text}"
-    elif rank > 70 and not concern_text:
-        # We must acknowledge a gap for low-ranked candidates
-        # If score is very low, make it clear
-        if cand.get("core_score", 0.0) < 40.0:
-            caveat = "Note: Failed to meet the technical depth required for the JD."
-        else:
-            caveat = "Note: Overall evidence density is lower than top-tier candidates."
+    eval_gap = _eval_gap_concern(cand)
+
+    # Location concern — checked independently of JD disqualifiers
+    loc_concern = _location_concern(cand)
+
+    if rank > 30:
+        concern_parts = []
+        if concern_text:
+            concern_parts.append(concern_text)
+        if eval_gap:
+            concern_parts.append(eval_gap)
+        if loc_concern:
+            concern_parts.append(loc_concern)
+        if concern_parts:
+            caveat = "Note: " + " ".join(concern_parts)
+        elif rank > 70:
+            # Must still be specific — append behavioral detail if not already in support
+            beh = _behavioral_detail(cand)
+            if beh and beh not in support:
+                caveat = f"Note: {beh}."
+            else:
+                # Final fallback: reference the actual score bucket weakness
+                weak_bucket = ranked_domains[-1][1]  # The weakest domain
+                caveat = f"Note: No evidence of {weak_bucket}; overall evidence density is lower than top-tier candidates."
+    else:
+        # Ranks 1–30: only surface a location concern if present, otherwise standard concern
+        concern_parts = []
+        if eval_gap:
+            concern_parts.append(eval_gap)
+        if loc_concern:
+            concern_parts.append(loc_concern)
+        elif concern_text:
+            concern_parts.append(concern_text)
+        if concern_parts:
+            caveat = "Note: " + " ".join(concern_parts)
 
     second_parts = [p for p in [support, caveat] if p]
     if second_parts:

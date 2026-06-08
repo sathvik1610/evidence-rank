@@ -5,7 +5,8 @@ import pytest
 from src.behavioral import (
     reachability_multiplier, notice_modifier, location_modifier,
     social_proof_boost, seniority_modifier, soft_penalties,
-    has_floor_exempt_penalty, compute_final_score, assign_ranks
+    has_floor_exempt_penalty, compute_final_score, assign_ranks,
+    technical_bonus_scale
 )
 from src.weights import W
 
@@ -36,6 +37,43 @@ def test_reachability_multiplier():
         "beh_recruiter_response_rate": 0.90
     }
     assert abs(reachability_multiplier(cand_not_open, ref) - W["behavioral.not_open_mult"]) < 1e-9
+
+def test_reachability_light_inactive_tier():
+    """Light inactivity tier: inactive 120-270 days applies a mild penalty."""
+    ref = date(2026, 6, 1)
+    cand = {
+        "beh_last_active_date": "2026-01-01",  # ~151 days ago — hits light tier (>120, <270)
+        "beh_open_to_work": True,
+        "beh_recruiter_response_rate": 0.90
+    }
+    result = reachability_multiplier(cand, ref)
+    assert abs(result - W["behavioral.inactive_light_mult"]) < 1e-9
+
+def test_reachability_not_open_compound_penalty():
+    """Not-open + inactive > 90 days applies compound penalty on top of not_open_mult."""
+    ref = date(2026, 6, 1)
+    cand_compound = {
+        "beh_last_active_date": "2026-01-01",  # ~151 days ago > compound threshold (90)
+        "beh_open_to_work": False,
+        "beh_recruiter_response_rate": 0.90
+    }
+    result = reachability_multiplier(cand_compound, ref)
+    # light_mult × not_open_mult × compound_mult
+    expected = (
+        W["behavioral.inactive_light_mult"]
+        * W["behavioral.not_open_mult"]
+        * W["behavioral.not_open_inactive_compound_mult"]
+    )
+    assert abs(result - expected) < 1e-9
+
+    # Active + not open → no compound (inactive days = 2 days, not > 90)
+    cand_just_not_open = {
+        "beh_last_active_date": "2026-05-30",
+        "beh_open_to_work": False,
+        "beh_recruiter_response_rate": 0.90
+    }
+    result2 = reachability_multiplier(cand_just_not_open, ref)
+    assert abs(result2 - W["behavioral.not_open_mult"]) < 1e-9  # no compound
 
 def test_notice_modifier():
     # Ideal (<= 30 days usually)
@@ -93,6 +131,12 @@ def test_seniority_modifier():
     assert seniority_modifier({"seniority_score": 0.90}) == 0.90
     assert seniority_modifier({}) == 1.0
 
+def test_technical_bonus_scale_gates_additive_bonuses():
+    assert technical_bonus_scale(40.0) == 0.0
+    assert technical_bonus_scale(80.0) == 1.0
+    mid = technical_bonus_scale(65.0)
+    assert 0.0 < mid < 1.0
+
 def test_soft_penalties():
     # Clean
     assert soft_penalties({}) == 1.0
@@ -109,6 +153,30 @@ def test_soft_penalties():
     # Keyword stuffer
     assert soft_penalties({"keyword_stuffer_flag": True}) < 1.0
 
+    # Current chatbot-adjacent profile without ranking/eval depth
+    chatbot_adjacent = {
+        "experience_recency": 0.3,
+        "eval_framework": 0.0,
+        "ltr_reranking": 1.0,
+    }
+    assert soft_penalties(chatbot_adjacent) == W["soft_penalties.current_chatbot_adjacent_mult"]
+
+    eval_gap = {
+        "eval_framework": 0.0,
+        "retrieval_search": 2.0,
+        "ltr_reranking": 2.0,
+        "sys_experience_score": 1.0,
+    }
+    assert soft_penalties(eval_gap) == W["soft_penalties.eval_gap_strong_ranking_mult"]
+
+    weak_eval_gap = {
+        "eval_framework": 0.0,
+        "retrieval_search": 1.0,
+        "ltr_reranking": 2.0,
+        "sys_experience_score": 1.0,
+    }
+    assert soft_penalties(weak_eval_gap) == 1.0
+
 def test_has_floor_exempt_penalty():
     # consulting_only is floor exempt
     assert has_floor_exempt_penalty({"consulting_only": True}) is True
@@ -123,6 +191,12 @@ def test_compute_final_score():
         "impossible_flag": True
     }
     assert abs(compute_final_score(cand_imp, ref) - 80.0 * W["behavioral.honeypot_multiplier"]) < 1e-9
+
+    cand_ghost = {
+        "final_phase4_score": 80.0,
+        "is_ghost": True
+    }
+    assert abs(compute_final_score(cand_ghost, ref) - 80.0 * W["behavioral.honeypot_multiplier"]) < 1e-9
 
     # Normal computation
     cand_normal = {
@@ -142,6 +216,23 @@ def test_compute_final_score():
     score = compute_final_score(cand_normal, ref)
     assert score > 0.0
     assert score <= 120.0
+
+def test_soft_honeypot_score_never_makes_negative_final_score():
+    ref = date(2026, 6, 1)
+    cand = {
+        "final_phase4_score": 80.0,
+        "honeypot_score": 0.6,  # below suspicious threshold, but high enough to zero out
+        "beh_last_active_date": "2026-05-30",
+        "beh_open_to_work": True,
+        "beh_recruiter_response_rate": 0.90,
+        "beh_notice_period_days": 15,
+        "beh_location": "Pune",
+        "beh_country": "India",
+        "seniority_score": 1.0,
+        "writing_signal": 1.0,
+        "ninety_day_alignment": 0.0,
+    }
+    assert compute_final_score(cand, ref) == 0.0
 
 def test_assign_ranks():
     cands = [

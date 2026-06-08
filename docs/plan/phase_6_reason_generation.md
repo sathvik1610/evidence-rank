@@ -67,6 +67,7 @@ For ranks above 30, present a concern when one exists. For ranks above 70, ackno
 - `score`
 - `core_score`
 - `ce_score`
+- `ce_raw_score` may also exist in the cross-encoder artifact, but it is debug-only and must not be used in final scoring or explanations.
 - `reasoning`
 - `concern`
 

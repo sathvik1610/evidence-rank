@@ -21,6 +21,7 @@ FLOOR_EXEMPT_MULTIPLIERS = set(JD_FEATURE_CONTRACT["floor_exempt_multiplier_ids"
 
 def reachability_multiplier(cand: dict, reference_date: date) -> float:
     mult = 1.0
+    days_inactive: int | None = None  # cached so OTW compound can reuse it
 
     last_active_str = cand.get("beh_last_active_date")
     if last_active_str:
@@ -30,14 +31,25 @@ def reachability_multiplier(cand: dict, reference_date: date) -> float:
                 mult *= W["behavioral.inactive_heavy_mult"]
             elif days_inactive > W["behavioral.inactive_moderate_days"]:
                 mult *= W["behavioral.inactive_moderate_mult"]
+            elif days_inactive > W["behavioral.inactive_light_days"]:
+                # New light tier: catches candidates inactive 120-270 days
+                mult *= W["behavioral.inactive_light_mult"]
         except ValueError:
             pass
 
     if not cand.get("beh_open_to_work", True):
         mult *= W["behavioral.not_open_mult"]
+        # Compound: not flagged open AND has been inactive for a while → truly unreachable
+        # A candidate who hasn't checked in for 3+ months AND isn't open is a recruiter dead-end.
+        compound_threshold = W["behavioral.not_open_inactive_compound_days"]
+        if days_inactive is not None and days_inactive > compound_threshold:
+            mult *= W["behavioral.not_open_inactive_compound_mult"]
 
-    if cand.get("beh_recruiter_response_rate", 1.0) < W["behavioral.low_response_rate_threshold"]:
+    rrr = cand.get("beh_recruiter_response_rate", 1.0)
+    if rrr < W["behavioral.low_response_rate_threshold"]:
         mult *= W["behavioral.low_response_mult"]
+    elif rrr < W["behavioral.moderate_response_rate_threshold"]:
+        mult *= W["behavioral.moderate_response_mult"]
 
     return mult
 
@@ -103,6 +115,15 @@ def seniority_modifier(cand: dict) -> float:
     return cand.get("seniority_score", 1.0)
 
 
+def technical_bonus_scale(phase4_score: float) -> float:
+    """Scale additive bonuses so behavior cannot rescue weak technical fit."""
+    zero = W["behavioral.bonus_zero_phase4_score"]
+    full = W["behavioral.bonus_full_phase4_score"]
+    if full <= zero:
+        return 1.0
+    return max(0.0, min(1.0, (phase4_score - zero) / (full - zero)))
+
+
 def soft_penalties(cand: dict) -> float:
     multiplier = 1.0
 
@@ -125,6 +146,27 @@ def soft_penalties(cand: dict) -> float:
     if cand.get("langchain_only_flag", False):
         multiplier *= W["soft_penalties.langchain_only_mult"]
 
+    # Current support-chatbot/RAG work is adjacent, not the JD's ranking/search
+    # ownership target. Phase 3 marks this as low recency; apply a rank-time
+    # penalty when there is no evaluation depth and at most weak LTR evidence.
+    if (
+        cand.get("experience_recency", 0.5) <= 0.3
+        and cand.get("eval_framework", 0.0) == 0.0
+        and cand.get("ltr_reranking", 0.0) <= 1.0
+    ):
+        multiplier *= W["soft_penalties.current_chatbot_adjacent_mult"]
+
+    # JD calls ranking evaluation a must-have. Keep this mild: do not reject a
+    # strong search/ranking builder, but let complete eval evidence break ties
+    # ahead of otherwise similar profiles.
+    if (
+        cand.get("eval_framework", 0.0) == 0.0
+        and cand.get("retrieval_search", 0.0) >= 2.0
+        and cand.get("ltr_reranking", 0.0) >= 2.0
+        and cand.get("sys_experience_score", 0.0) >= 1.0
+    ):
+        multiplier *= W["soft_penalties.eval_gap_strong_ranking_mult"]
+
     if cand.get("keyword_stuffer_flag", False):
         multiplier *= JD_FEATURE_CONTRACT["multiplier_values"]["keyword_stuffer_penalty"]
 
@@ -140,6 +182,16 @@ def soft_penalties(cand: dict) -> float:
 
     if cand.get("closed_source_flag", False):
         multiplier *= W["soft_penalties.closed_source_mult"]
+
+    # Current-role consulting penalty:
+    # consulting_only fires only when 100% of career is consulting.
+    # But the JD is also skeptical of candidates currently at IT services firms
+    # (TCS, Infosys, etc.) even if they had product company experience before.
+    # Apply a softer penalty when current employer is a consulting firm.
+    if not cand.get("consulting_only", False):  # full penalty already handled
+        current_company = (cand.get("profile_current_company") or "").lower().strip()
+        if any(firm in current_company for firm in constants.CONSULTING_FIRMS):
+            multiplier *= W["soft_penalties.current_role_consulting_mult"]
 
     return multiplier
 
@@ -158,8 +210,12 @@ def has_floor_exempt_penalty(cand: dict) -> bool:
 def compute_final_score(cand: dict, reference_date: date) -> float:
     phase4_score = cand.get("final_phase4_score", 0.0)
 
-    # Honeypot / Impossible kill switch
-    if cand.get("impossible_flag", False) or cand.get("suspicious_flag", False):
+    # Honeypot / Impossible / Ghost kill switch
+    if (
+        cand.get("impossible_flag", False)
+        or cand.get("suspicious_flag", False)
+        or cand.get("is_ghost", False)
+    ):
         return phase4_score * W["behavioral.honeypot_multiplier"]
 
     reachability_mult = reachability_multiplier(cand, reference_date)
@@ -179,14 +235,23 @@ def compute_final_score(cand: dict, reference_date: date) -> float:
 
     # Soft honeypot score compound penalty (for non-flagged suspicious profiles)
     honeypot_score = cand.get("honeypot_score", 0.0)
-    honeypot_mult  = 1.0 - (honeypot_score * W["behavioral.honeypot_score_penalty_factor"])
+    honeypot_mult  = max(
+        0.0,
+        1.0 - (honeypot_score * W["behavioral.honeypot_score_penalty_factor"]),
+    )
     combined_mult *= honeypot_mult
 
-    # Additive bonuses
+    # Additive bonuses are gated by technical fit. Redrob signals help choose
+    # between qualified candidates; they must not rescue adjacent profiles.
+    bonus_scale = technical_bonus_scale(phase4_score)
     ninety_day_alignment = cand.get("ninety_day_alignment", 0.0)
-    ninety_day_bonus     = W["behavioral.ninety_day_bonus_max"] * ninety_day_alignment
+    ninety_day_bonus     = (
+        W["behavioral.ninety_day_bonus_max"]
+        * ninety_day_alignment
+        * bonus_scale
+    )
 
-    social_boost = social_proof_boost(cand)
+    social_boost = social_proof_boost(cand) * bonus_scale
 
     final = (
         phase4_score * combined_mult

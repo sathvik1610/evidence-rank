@@ -59,7 +59,7 @@ def test_generate_reasoning_weak():
         "retrieval_search": 2.0
     }
     reason = generate_reasoning(cand)
-    assert "Mentions Retrieval Systems but lacks deep production evidence" in reason
+    assert "Profile-text evidence in Retrieval Systems" in reason
 
 def test_generate_reasoning_low_rank():
     cand = {
@@ -70,4 +70,20 @@ def test_generate_reasoning_low_rank():
         "core_score": 35.0
     }
     reason = generate_reasoning(cand)
-    assert "Failed to meet the technical depth" in reason
+    # New behavior: low-rank candidates get a specific weakness note (No evidence of X)
+    # OR a behavioral detail, but NOT a generic identical string.
+    assert "Note:" in reason  # Always has a caveat at rank 80
+    assert "Junior QA" in reason  # Always grounded in profile facts
+
+
+def test_generate_reasoning_surfaces_eval_gap_for_strong_ranking_profile():
+    cand = {
+        "profile_current_title": "Search Engineer",
+        "profile_years_of_experience": 6.0,
+        "rank": 12,
+        "retrieval_search": 2.5,
+        "ltr_reranking": 3.0,
+        "eval_framework": 0.0,
+    }
+    reason = generate_reasoning(cand)
+    assert "No explicit ranking-evaluation metric evidence surfaced" in reason
