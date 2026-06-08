@@ -15,11 +15,23 @@ metadata:
   #                       USE THIS for single-word or hyphenated anchors that appear in multi-word skill names.
   #   token_all         — same as token_any but ALL listed anchor tokens must be present.
   #                       Use for disambiguation: requires both 'retrieval' AND 'augmented' to match RAG.
+  multiplier_application:
+    order: "listed_order"
+    combined_floor: 0.25
+    floor_exempt_multiplier_ids:
+      - "pure_research_penalty"
+      - "consulting_heavy_soft_penalty"
+      - "langchain_tourist_trap"
+      - "keyword_stuffer_penalty"
+      - "computer_vision_trap"
+    notes: "Apply multipliers deterministically in file order. The 25% floor is only protection against accidental over-stacking of soft logistics/behavior penalties; it must not rescue profiles matching explicit JD disqualifiers."
   context_weights:
     "career_history[].description": 6
     "career_history[].title": 4
     "profile.current_title": 4
+    "profile.summary": 2
     "skills[].name": 1
+    "redrob_signals.skill_assessment_scores.keys": 2
 
 # ---------------------------------------------------------
 # 1. EVIDENCE EXTRACTION RULES
@@ -34,7 +46,9 @@ extraction_rules:
     target_fields:
       - "career_history[].description"
       - "career_history[].title"
+      - "profile.current_title"
       - "skills[].name"
+      - "redrob_signals.skill_assessment_scores.keys"
     patterns:
       - "bm25"
       - "retrieval system"
@@ -51,6 +65,7 @@ extraction_rules:
       - "retrieval pipeline"
       - "ranking pipeline"
       - "sentence-transformers"
+      - "sentence transformers"
       - "faiss"
       - "pinecone"
       - "weaviate"
@@ -62,16 +77,23 @@ extraction_rules:
       - "solr"
       - "hnsw"
       - "bge"
+      - "e5"
+      - "gte"
+      - "cohere embeddings"
+      - "jina embeddings"
       - "openai embeddings"
       - "voyage"
       - "embeddings"
+      - "pgvector"
 
   - id: "semantic_recsys_and_ranking"
     feature_bucket: "primary_fit"
     target_fields:
       - "career_history[].description"
       - "career_history[].title"
+      - "profile.current_title"
       - "skills[].name"
+      - "redrob_signals.skill_assessment_scores.keys"
     patterns:
       - "recommendation engine"
       - "recommendation platform"
@@ -89,8 +111,19 @@ extraction_rules:
       - "personalization"
       - "ranking model"
       - "learning to rank"
+      - "ltr"
+      - "xgboost rank"
+      - "xgboost ranking"
       - "lambdamart"
       - "cross encoder"
+      - "cross-encoder"
+      - "two tower"
+      - "two-tower"
+      - "dssm"
+      - "colbert"
+      - "bi encoder"
+      - "bi-encoder"
+      - "neural ranking"
       - "reranking"
       - "re-ranking"
 
@@ -98,11 +131,19 @@ extraction_rules:
     feature_bucket: "primary_fit"
     target_fields:
       - "career_history[].description"
+      - "career_history[].title"
+      - "profile.current_title"
+      - "profile.summary"
+      - "skills[].name"
+      - "redrob_signals.skill_assessment_scores.keys"
     patterns:
       - "ndcg"
+      - "ndcg@"
       - "mean reciprocal rank"
+      - "mrr@"
       # NOTE: "mrr" alone matches "Monthly Recurring Revenue" - use full phrase
       - "mean average precision"
+      - "map@"
       # NOTE: "map" alone is too broad ("map function", "roadmap", etc.) - use full phrase
       - "precision at k"
       # NOTE: "a/b testing" alone is too broad — fires on marketing, growth, email campaigns.
@@ -124,6 +165,21 @@ extraction_rules:
       - "offline-to-online correlation"
       - "precision@k"
       - "recall@k"
+      - "hit rate"
+      - "hit-rate"
+      - "click-through rate as proxy"
+    scoring_guards:
+      - applies_to_patterns:
+          - "a/b testing framework"
+          - "experimentation platform"
+          - "online experiments"
+          - "human evaluation"
+          - "hit rate"
+          - "hit-rate"
+        require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+        note: "Generic experimentation/evaluation terms only count when anchored to search, ranking, retrieval, or recommendation work."
 
   - id: "metric_ownership"
     feature_bucket: "product_builder"
@@ -139,6 +195,11 @@ extraction_rules:
       - "experiment impact"
       - "kpi"
       - "growth metric"
+    scoring_guards:
+      - require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+        note: "CTR/conversion/retention/KPI language is valuable only when tied to ranking, search, retrieval, or recommendation systems; otherwise it is marketing/product-management noise."
 
   - id: "operational_pain_and_scale"
     feature_bucket: "product_builder"
@@ -151,14 +212,28 @@ extraction_rules:
       - "retrieval regression"
       - "latency regression"
       - "index refresh"
+      - "index rebuild"
+      - "indexing pipeline"
       - "incident response"
       - "on call"
       - "production traffic"
-      - "serving"
+      - "model serving"
+      - "online serving"
+      - "retrieval serving"
       - "millions of users"
-      - "large scale"
+      - "large-scale retrieval"
+      - "large-scale ranking"
+      - "large-scale recommendation"
       - "p99 latency"
-      - "high traffic"
+      - "high-traffic search"
+      - "high traffic search"
+      - "high-traffic recommendation"
+    scoring_guards:
+      - require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+          - "extracted_features.hands_on_engineering_python > 0"
+        note: "Operational scale language must be technical and preferably ML/search anchored; do not let generic support, logistics, retail, or marketing operations suppress research/product penalties."
 
   - id: "ownership_action_verbs"
     feature_bucket: "product_builder"
@@ -177,6 +252,43 @@ extraction_rules:
       - "shipped to production"
       - "zero to one"
       - "v1 of"
+      - "rapid iteration"
+      - "prototype to production"
+      - "productionized"
+      - "launched v1"
+      - "shipped v1"
+      - "weekly iteration"
+      - "week-long sprint"
+    scoring_guards:
+      - require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+          - "extracted_features.inferred_production_ml == 1"
+        note: "Ownership/shipper verbs are secondary evidence. They should never lift generic founders, PMs, marketers, or operations profiles without relevant search/ranking/ML production evidence."
+
+  - id: "shipper_product_engineer"
+    feature_bucket: "product_builder"
+    description: "Positive shipper signal from the JD: tilt toward practical product-engineering, not pure research."
+    target_fields:
+      - "career_history[].description"
+      - "profile.summary"
+    patterns:
+      - "shipped"
+      - "launched"
+      - "productionized"
+      - "from prototype to production"
+      - "built and iterated"
+      - "rapid iteration"
+      - "real users"
+      - "user feedback"
+      - "feedback loop"
+      - "recruiter feedback"
+    scoring_guards:
+      - require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+          - "extracted_features.inferred_production_ml == 1"
+        note: "Do not reward generic launch/project language unless the profile also shows relevant ML/search/ranking production evidence."
 
   - id: "hands_on_engineering_python"
     feature_bucket: "must_have"
@@ -230,7 +342,12 @@ extraction_rules:
       - "built v1"
       - "startup"
       - "seed stage"
-      - "series a"
+    scoring_guards:
+      - require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+          - "extracted_features.hands_on_engineering_python > 0"
+        note: "Startup language is useful only as a weak context signal for relevant builders. Do not count employer funding-stage mentions alone; Redrob is Series A, and copied JD/company context is not candidate evidence."
 
   - id: "domain_exposure_hr_marketplace"
     feature_bucket: "nice_to_have"
@@ -323,19 +440,29 @@ concept_inference:
       Signals: model endpoint + monitoring + real users. Not the same as 'studied ML'.
     requires_all:
       - extracted_features.hands_on_engineering_python > 0
+    requires_any_feature:
+      - extracted_features.core_search_and_retrieval > 0
+      - extracted_features.semantic_recsys_and_ranking > 0
+      - extracted_features.llm_fine_tuning > 0
     requires_any_one:
       - field: "career_history[].description"
-        contains_any: ["deployed", "production model", "model endpoint", "api endpoint",
-                       "real users", "live traffic", "model in production", "shipped",
-                       "inference service", "served", "online serving"]
+        contains_any: ["production model", "model endpoint", "ml endpoint",
+                       "real users", "live traffic", "model in production", "shipped model",
+                       "inference service", "online serving", "model serving",
+                       "deployed ranking", "deployed retrieval", "deployed recommendation"]
     value_if_true: 1
     value_if_false: 0
+    note: "Avoid treating generic backend deployment/API work as production ML unless an ML/search/ranking signal is also present."
 
   - id: "inferred_eval_practitioner"
     produces: "extracted_features.inferred_eval_practitioner"
     description: |
       Candidate runs rigorous evaluation without using metric names like NDCG.
       Signals: comparing approaches, holdout sets, measuring quality, business impact correlation.
+    requires_any_feature:
+      - extracted_features.core_search_and_retrieval > 0
+      - extracted_features.semantic_recsys_and_ranking > 0
+      - extracted_features.evaluation_culture > 0
     requires_any_one:
       - field: "career_history[].description"
         contains_any: ["holdout set", "test set", "baseline comparison", "measured improvement",
@@ -355,11 +482,11 @@ concept_inference:
       AND extracted_features.core_search_and_retrieval == 0
       AND extracted_features.operational_pain_and_scale == 0
       AND extracted_features.metric_ownership == 0
-      AND profile.current_title does NOT match_any [engineer, developer, scientist, researcher]
+      AND profile.current_title does NOT match_any [engineer, developer]
       THEN inferred_keyword_stuffer = 1
     value_if_true: 1
     value_if_false: 0
-    note: "Feed into multiplier: if inferred_keyword_stuffer == 1, apply penalty. Stricter than skill_inflation_check."
+    note: "Feeds keyword_stuffer_penalty. Stricter than skill_inflation_check; research/science titles still need evidence in career history, not just skill keywords."
 
 # ---------------------------------------------------------
 # 1.5 COMPUTED FIELDS (Engine Pre-Processing)
@@ -429,6 +556,104 @@ computed_fields:
       - "object detection"
       - "recommendation systems"
       - "information retrieval"
+
+  - id: "computed.verified_relevant_assessment_count"
+    description: "Count of Redrob-assessed relevant ML/search/ranking skills with score >= 70."
+    inputs:
+      - "redrob_signals.skill_assessment_scores"
+    formula: "count(skill_assessment_scores where score >= 70 and lowercase(skill_name) matches any keyword in relevant_assessment_keyword_list)"
+    type: integer
+    fallback: 0
+    relevant_assessment_keyword_list:
+      - "information retrieval"
+      - "search"
+      - "ranking"
+      - "recommendation"
+      - "recommender"
+      - "nlp"
+      - "embeddings"
+      - "vector search"
+      - "llm"
+      - "fine-tuning"
+      - "python"
+      - "pytorch"
+      - "machine learning"
+    notes: "Verified assessments are stronger than self-reported skills, but only high scores on relevant skills should help."
+
+  - id: "computed.relevant_skill_depth_count"
+    description: "Count of relevant skills with sustained usage and non-beginner proficiency."
+    inputs:
+      - "skills[].name"
+      - "skills[].proficiency"
+      - "skills[].duration_months"
+      - "skills[].endorsements"
+    formula: "count(skills where relevant name match AND duration_months >= 24 AND proficiency in ['advanced','expert'] AND endorsements >= 10)"
+    type: integer
+    fallback: 0
+    relevant_skill_keyword_list:
+      - "information retrieval"
+      - "search"
+      - "ranking"
+      - "recommendation"
+      - "recommender"
+      - "embeddings"
+      - "vector"
+      - "bm25"
+      - "faiss"
+      - "pinecone"
+      - "qdrant"
+      - "milvus"
+      - "weaviate"
+      - "opensearch"
+      - "elasticsearch"
+      - "python"
+      - "pytorch"
+      - "llm"
+      - "fine-tuning"
+    notes: "Prevents treating a 2-month beginner skill the same as multi-year applied practice."
+
+  - id: "computed.recent_ai_skill_only"
+    description: "Flags profiles whose AI story is mostly recent self-reported skills, with no career-history evidence."
+    inputs:
+      - "skills[].name"
+      - "skills[].duration_months"
+      - "career_history[].description"
+    formula: |
+      true if ai_skill_count >= 3
+      AND max(duration_months for AI/ML skills) < 12
+      AND extracted_features.core_search_and_retrieval == 0
+      AND extracted_features.semantic_recsys_and_ranking == 0
+      AND extracted_features.inferred_production_ml == 0
+    type: boolean
+    fallback: false
+    notes: "JD warns against recent framework/LLM tourists unless there is older production ML evidence."
+
+  - id: "computed.title_velocity_risk"
+    description: "Flags title-chaser pattern closer to the JD language than tenure alone."
+    inputs:
+      - "career_history[].title"
+      - "career_history[].duration_months"
+    formula: "career_history_count >= 4 AND distinct seniority/title bands >= 4 AND computed.avg_tenure_months < 24"
+    type: boolean
+    fallback: false
+    notes: "Complements job_hopper_risk by detecting rapid Senior/Staff/Principal-style title movement."
+
+  - id: "computed.career_yoe_years"
+    description: "Years of experience estimated from career_history durations."
+    inputs:
+      - "career_history[].duration_months"
+    formula: "sum(duration_months for all roles) / 12.0"
+    type: float
+    fallback: null
+
+  - id: "computed.yoe_claim_mismatch"
+    description: "Self-reported YOE differs materially from career-history duration."
+    inputs:
+      - "profile.years_of_experience"
+      - "computed.career_yoe_years"
+    formula: "abs(profile.years_of_experience - computed.career_yoe_years) > 2.0"
+    type: boolean
+    fallback: false
 
   - id: "extracted_product_company_ratio"
     description: "Fraction of total career months spent at product companies (vs consulting/services)."
@@ -573,6 +798,15 @@ multipliers:
         value: 3
     multiplier_value: 0.85
 
+  - id: "title_velocity_risk"
+    # JD-specific title-chaser pattern: rapid title progression across many roles.
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.title_velocity_risk"
+        operator: "=="
+        value: true
+    multiplier_value: 0.80
+
   - id: "code_stopped_architect"
     logic_operator: "AND"
     conditions:
@@ -588,6 +822,8 @@ multipliers:
           - "architect"
           - "director"
           - "vp"
+          - "cto"
+          - "chief technology officer"
           - "head of"
           - "engineering manager"
           - "principal"
@@ -601,6 +837,17 @@ multipliers:
         operator: "=="
         value: 0
     multiplier_value: 0.75
+
+  - id: "recent_ai_skill_only_penalty"
+    # Penalizes recent self-reported AI skill accumulation without career-history evidence
+    # of production ML/retrieval/ranking. This matches the JD's LangChain-tourist warning
+    # without rejecting real engineers who have older production ML experience.
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.recent_ai_skill_only"
+        operator: "=="
+        value: true
+    multiplier_value: 0.60
 
   - id: "langchain_tourist_trap"
     logic_operator: "AND"
@@ -622,6 +869,14 @@ multipliers:
         operator: "=="
         value: 0
     multiplier_value: 0.50
+
+  - id: "keyword_stuffer_penalty"
+    logic_operator: "AND"
+    conditions:
+      - field: "extracted_features.inferred_keyword_stuffer"
+        operator: "=="
+        value: 1
+    multiplier_value: 0.55
 
   - id: "computer_vision_trap"
     logic_operator: "AND"
@@ -711,7 +966,7 @@ multipliers:
           - "paper"
           - "open source"
           - "open-source"
-    multiplier_value: 0.90
+    multiplier_value: 0.80
 
   - id: "skill_inflation_check"
     # COMPUTED FIELD: 'computed.ai_skill_count' does not exist in schema.
@@ -739,8 +994,21 @@ multipliers:
         value: 0
     multiplier_value: 0.80
 
+  - id: "yoe_claim_mismatch_penalty"
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.yoe_claim_mismatch"
+        operator: "=="
+        value: true
+    multiplier_value: 0.90
+
   - id: "seniority_sweet_spot"
+    # Prefer computed.career_yoe_years when available; otherwise fall back to
+    # profile.years_of_experience. The JD range is a preference, not a hard cutoff.
     logic_operator: "EVAL_BAND"
+    field_preference:
+      - "computed.career_yoe_years"
+      - "profile.years_of_experience"
     bands:
       - min: 5.0
         max: 9.9
@@ -765,7 +1033,7 @@ multipliers:
   - id: "location_tier_multiplier"
     logic_operator: "EVAL_LOCATION"
     bands:
-      - condition: "profile.location matches_any ['Pune','Noida','Delhi NCR']"
+      - condition: "profile.location matches_any ['Pune','Noida','Gurgaon','Gurugram','Delhi','Delhi NCR','New Delhi','Faridabad','Ghaziabad']"
         multiplier: 1.00
 
       - condition: "profile.location matches_any ['Hyderabad','Mumbai'] OR redrob_signals.willing_to_relocate == True"
@@ -806,6 +1074,65 @@ additive_tie_breakers:
         value: 50
     bonus_value: 0.03
 
+  - id: "verified_relevant_assessment"
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.verified_relevant_assessment_count"
+        operator: ">="
+        value: 1
+    bonus_value: 0.03
+
+  - id: "deep_relevant_skill_practice"
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.relevant_skill_depth_count"
+        operator: ">="
+        value: 2
+      - field: "extracted_features.core_search_and_retrieval"
+        operator: ">"
+        value: 0
+    bonus_value: 0.02
+
+  - id: "stable_product_tenure"
+    logic_operator: "AND"
+    conditions:
+      - field: "computed.avg_tenure_months"
+        operator: ">="
+        value: 30.0
+      - field: "extracted_product_company_ratio"
+        operator: ">="
+        value: 0.5
+    bonus_value: 0.02
+
+  - id: "serious_candidate_activity"
+    logic_operator: "AND"
+    conditions:
+      - field: "redrob_signals.interview_completion_rate"
+        operator: ">="
+        value: 0.80
+      - field: "redrob_signals.recruiter_response_rate"
+        operator: ">="
+        value: 0.30
+    bonus_value: 0.02
+
+  - id: "tier1_cs_ml_education_tiebreaker"
+    # Tiny tiebreaker only. The JD values shipped production systems far above pedigree.
+    logic_operator: "AND"
+    conditions:
+      - field: "education[].tier"
+        operator: "matches_any_ignorecase"
+        value:
+          - "tier_1"
+      - field: "education[].field_of_study"
+        operator: "matches_any_ignorecase"
+        value:
+          - "computer science"
+          - "computer engineering"
+          - "machine learning"
+          - "artificial intelligence"
+          - "data science"
+    bonus_value: 0.01
+
   - id: "profile_authenticity_score"
     logic_operator: "AND"
     conditions:
@@ -813,7 +1140,7 @@ additive_tie_breakers:
         operator: "=="
         value: true
 
-      - field: "redrob_signals.linkedin_connected"
+      - field: "redrob_signals.verified_phone"
         operator: "=="
         value: true
 
@@ -821,3 +1148,11 @@ additive_tie_breakers:
         operator: ">"
         value: 80.0
     bonus_value: 0.02
+
+  - id: "linkedin_connected_minor_signal"
+    logic_operator: "AND"
+    conditions:
+      - field: "redrob_signals.linkedin_connected"
+        operator: "=="
+        value: true
+    bonus_value: 0.005

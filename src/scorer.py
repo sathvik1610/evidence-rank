@@ -141,12 +141,16 @@ def score_candidates_vectorized(df) -> object:
 
     # Penalty modifiers — applied per flag column if present
     cq_mod = career_quality_raw
-    if "consulting_flag" in df.columns:
-        cq_mod = pl.when(pl.col("consulting_flag") == True).then(
-            cq_mod * W["career_multipliers.consulting_only_penalty"]
-        ).otherwise(cq_mod)
-    if "consulting_only" in df.columns:
-        cq_mod = pl.when(pl.col("consulting_only") == True).then(
+    consulting_expr = None
+    if "consulting_flag" in df.columns and "consulting_only" in df.columns:
+        consulting_expr = (pl.col("consulting_flag") == True) | (pl.col("consulting_only") == True)
+    elif "consulting_flag" in df.columns:
+        consulting_expr = pl.col("consulting_flag") == True
+    elif "consulting_only" in df.columns:
+        consulting_expr = pl.col("consulting_only") == True
+
+    if consulting_expr is not None:
+        cq_mod = pl.when(consulting_expr).then(
             cq_mod * W["career_multipliers.consulting_only_penalty"]
         ).otherwise(cq_mod)
     if "research_only" in df.columns:

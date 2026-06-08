@@ -13,6 +13,7 @@ STRENGTH_DOMAINS = [
     ("retrieval_search", "Retrieval Systems"),
     ("sys_experience_score", "Recommendation and Ranking Systems"),
     ("vector_db_hybrid", "Vector Search Infrastructure"),
+    ("ltr_reranking", "Learning-to-Rank and Reranking"),
     ("eval_framework", "Evaluation Metrics"),
     ("product_builder_score", "Product ML & Scaling"),
     ("python_coding", "Python Engineering"),
@@ -23,6 +24,7 @@ LEAD_TEMPLATES_STRONG = {
     "retrieval_search": "Strong evidence in Retrieval Systems, specifically: '{snippet}'.",
     "sys_experience_score": "Significant experience building Recommendation and Ranking Systems.",
     "vector_db_hybrid": "Deep expertise in Vector Search Infrastructure, notably: '{snippet}'.",
+    "ltr_reranking": "Strong evidence in Learning-to-Rank and Reranking, specifically: '{snippet}'.",
     "eval_framework": "Rigorous focus on Evaluation Metrics and testing methodologies: '{snippet}'.",
     "product_builder_score": "Proven track record in Product ML & Scaling across engineering teams.",
     "python_coding": "Solid foundation in Python Engineering: '{snippet}'.",
@@ -33,6 +35,7 @@ LEAD_TEMPLATES_WEAK = {
     "retrieval_search": "Mentions Retrieval Systems but lacks deep production evidence.",
     "sys_experience_score": "Lists Recommendation or Ranking Systems as a skill.",
     "vector_db_hybrid": "Mentions Vector Search or databases but lacks production context.",
+    "ltr_reranking": "Mentions Learning-to-Rank or reranking but lacks deep production context.",
     "eval_framework": "References Evaluation Metrics but without rigorous system framing.",
     "product_builder_score": "Has product company experience but lacks clear ML scaling evidence.",
     "python_coding": "Mentions Python as a skill but without core engineering context.",
@@ -42,7 +45,7 @@ LEAD_TEMPLATES_WEAK = {
 def get_90day_milestone(domain_key: str) -> str:
     if domain_key in ("retrieval_search", "sys_experience_score"):
         return "the Weeks 1-3 audit (BM25/Retrieval)"
-    elif domain_key in ("vector_db_hybrid", "product_builder_score", "llm_integration"):
+    elif domain_key in ("vector_db_hybrid", "ltr_reranking", "product_builder_score", "llm_integration"):
         return "the Weeks 4-8 mandate (Ship v2 Hybrid Ranker)"
     elif domain_key == "eval_framework":
         return "the Weeks 9-12 mandate (Build Evaluation Framework)"
@@ -65,6 +68,27 @@ def get_largest_concern(cand: dict) -> str:
     if cand.get("title_velocity_flag", False):
         return "Frequent title changes noted across recent roles."
     return ""
+
+
+def _profile_prefix(cand: dict) -> str:
+    title = str(cand.get("profile_current_title") or "").strip()
+    company = str(cand.get("profile_current_company") or "").strip()
+    yoe = cand.get("profile_years_of_experience", -1)
+
+    parts = []
+    if title and title != "UNKNOWN":
+        parts.append(title)
+    if company and company != "UNKNOWN":
+        parts.append(f"at {company}")
+    try:
+        yoe_float = float(yoe)
+        if yoe_float >= 0:
+            parts.append(f"with {yoe_float:.1f} years of experience")
+    except (TypeError, ValueError):
+        pass
+
+    return " ".join(parts)
+
 
 def generate_reasoning(cand: dict) -> str:
     """
@@ -108,6 +132,10 @@ def generate_reasoning(cand: dict) -> str:
     else:
         lead = "Limited direct evidence found for core technical requirements."
 
+    profile_prefix = _profile_prefix(cand)
+    if profile_prefix:
+        lead = f"{profile_prefix}: {lead}"
+
     # 3. Support sentence
     support = ""
     # Only offer a supportive secondary capability if they are highly ranked and actually have the skill
@@ -133,5 +161,7 @@ def generate_reasoning(cand: dict) -> str:
         else:
             caveat = "Note: Overall evidence density is lower than top-tier candidates."
 
-    parts = [p for p in [lead, support, caveat] if p]
-    return " ".join(parts)
+    second_parts = [p for p in [support, caveat] if p]
+    if second_parts:
+        return f"{lead} {' '.join(second_parts)}"
+    return lead

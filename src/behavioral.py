@@ -9,13 +9,14 @@ passive candidates during early retrieval.
 """
 
 from datetime import date
+import constants
+from src.jd_intelligence import build_feature_contract
 from src.weights import W
 
-PUNE_NOIDA_CITIES = {"pune", "noida", "greater noida", "delhi", "new delhi",
-                      "gurugram", "gurgaon", "faridabad", "ghaziabad"}
-JD_WELCOME_CITIES = {"hyderabad", "mumbai"}
-INDIA_ADJACENT    = {"bangalore", "bengaluru", "chennai", "kolkata",
-                     "ahmedabad", "indore", "jaipur", "chandigarh", "kochi"}
+JD_FEATURE_CONTRACT = build_feature_contract(constants.JD_CONTRACT_YAML)
+PREFERRED_CITIES = set(JD_FEATURE_CONTRACT["location_bands"].get("preferred", []))
+WELCOME_CITIES = set(JD_FEATURE_CONTRACT["location_bands"].get("welcome", []))
+FLOOR_EXEMPT_MULTIPLIERS = set(JD_FEATURE_CONTRACT["floor_exempt_multiplier_ids"])
 
 
 def reachability_multiplier(cand: dict, reference_date: date) -> float:
@@ -59,12 +60,10 @@ def location_modifier(cand: dict) -> float:
     country  = cand.get("beh_country", "").lower()
     willing  = cand.get("beh_willing_to_relocate", False)
 
-    if any(city in location for city in PUNE_NOIDA_CITIES):
+    if any(city in location for city in PREFERRED_CITIES):
         return W["behavioral.location_pune_noida_mult"]
-    if any(city in location for city in JD_WELCOME_CITIES):
+    if any(city in location for city in WELCOME_CITIES):
         return W["behavioral.location_welcome_cities_mult"] if willing else W["behavioral.location_welcome_no_reloc"]
-    if any(city in location for city in INDIA_ADJACENT):
-        return W["behavioral.location_india_adjacent_mult"] if willing else W["behavioral.location_india_adjacent_no_reloc"]
     if country == "india" and willing:
         return W["behavioral.location_india_willing_mult"]
     if country == "india":
@@ -126,6 +125,9 @@ def soft_penalties(cand: dict) -> float:
     if cand.get("langchain_only_flag", False):
         multiplier *= W["soft_penalties.langchain_only_mult"]
 
+    if cand.get("keyword_stuffer_flag", False):
+        multiplier *= JD_FEATURE_CONTRACT["multiplier_values"]["keyword_stuffer_penalty"]
+
     pref_mode = cand.get("beh_preferred_work_mode", "").lower().strip()
     if pref_mode in ("remote", "wfh", "work from home"):
         multiplier *= W["soft_penalties.remote_pref_mult"]
@@ -140,6 +142,17 @@ def soft_penalties(cand: dict) -> float:
         multiplier *= W["soft_penalties.closed_source_mult"]
 
     return multiplier
+
+
+def has_floor_exempt_penalty(cand: dict) -> bool:
+    """Explicit JD disqualifiers should not be rescued by the generic combined floor."""
+    return (
+        ("consulting_heavy_soft_penalty" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("consulting_only", False))
+        or ("pure_research_penalty" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("research_only", False))
+        or ("computer_vision_trap" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("wrong_domain", False))
+        or ("langchain_tourist_trap" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("langchain_only_flag", False))
+        or ("keyword_stuffer_penalty" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("keyword_stuffer_flag", False))
+    )
 
 
 def compute_final_score(cand: dict, reference_date: date) -> float:
@@ -161,7 +174,8 @@ def compute_final_score(cand: dict, reference_date: date) -> float:
     logistical_mult = max(logistical_mult, W["behavioral.logistical_floor"])
 
     combined_mult = reachability_mult * penalty_mult * logistical_mult
-    combined_mult = max(combined_mult, W["behavioral.combined_floor"])
+    if not has_floor_exempt_penalty(cand):
+        combined_mult = max(combined_mult, W["behavioral.combined_floor"])
 
     # Soft honeypot score compound penalty (for non-flagged suspicious profiles)
     honeypot_score = cand.get("honeypot_score", 0.0)

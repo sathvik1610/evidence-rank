@@ -17,125 +17,30 @@ import re
 import json
 from typing import Dict, Any, List, Tuple
 
+import constants
 from src.weights import W
+from src.jd_intelligence import build_feature_contract
 
 # ---------------------------------------------------------------------------
 # Evidence Pattern Sets
 # ---------------------------------------------------------------------------
 
-RETRIEVAL_PATTERNS = [
-    r"faiss", r"pinecone", r"qdrant", r"milvus", r"weaviate",
-    r"opensearch", r"elasticsearch", r"dense retrieval",
-    r"vector search", r"embedding", r"semantic search",
-    r"ann\b", r"approximate nearest", r"sentence.transformer",
-    r"bi.encoder", r"cross.encoder", r"dense.encoder",
-    r"retrieval system", r"search system", r"information retrieval",
-    r"bm25", r"lucene", r"solr", r"hnsw",
-]
+JD_FEATURE_CONTRACT = build_feature_contract(constants.JD_CONTRACT_YAML)
 
-RANKING_PATTERNS = [
-    r"learning.to.rank", r"xgboost.*rank", r"lambdamart",
-    r"pairwise.*rank", r"listwise", r"ranking.*pipeline",
-    r"relevance.*score", r"rerank", r"bm25", r"search ranking",
-    r"cross.encoder", r"bi.encoder",
-]
-
-RECOMMENDATION_PATTERNS = [
-    r"recommendation.system", r"recsys", r"collaborative.filtering",
-    r"content.based.filtering", r"matching.engine", r"candidate.matching",
-    r"personalization.engine", r"match.score", r"recommender",
-]
-
-EVALUATION_PATTERNS = [
-    r"ndcg", r"mrr\b", r"mean.average.precision", r"a/b.test",
-    r"online.*eval", r"offline.*eval", r"precision.at", r"recall.at",
-    r"evaluation.framework", r"ranking.metric",
-    r"mean reciprocal rank", r"mean average precision",
-]
-
-PRODUCTION_PATTERNS = [
-    r"produc.*deploy", r"latency", r"inference.*serv",
-    r"real.user", r"live.*system", r"million.*request",
-    r"billion.*query", r"serving.*infrastructure",
-    r"qps\b", r"p99", r"p95", r"shipped to production",
-    r"serving", r"millions of users", r"large scale", r"high traffic",
-    r"production traffic",
-]
-
-# Shipper vs Researcher vocabulary — the JD's most explicit culture signal
-SHIPPER_TERMS = [
-    r"\bshipped\b", r"\blaunched\b", r"\bdeployed\b", r"\bbuilt\b",
-    r"\bproduction\b", r"\breal users\b", r"\bcustomers\b",
-    r"\brevenue\b", r"\bgrowth\b", r"\blatency\b", r"\bscale\b",
-]
-
-RESEARCHER_TERMS = [
-    r"\bpaper\b", r"\bbenchmark\b", r"\bablation\b", r"\bnovel\b",
-    r"\bwe propose\b", r"\bstate.of.the.art\b", r"\bneurips\b",
-    r"\bicml\b", r"\biclr\b", r"\barxiv\b", r"\bacademic\b",
-]
-
-# System Semantics Patterns — plain-language descriptions of IR/ranking systems.
-# The JD explicitly warns: "A candidate who built a recommendation system at a product
-# company is a fit even if they never say RAG, Pinecone, or FAISS."
-SYSTEM_SEMANTICS_PATTERNS = [
-    # Marketplace and matching
-    r"matching engine", r"candidate.job match", r"marketplace.*rank",
-    r"job matching", r"candidate matching", r"talent matching",
-    r"two.sided.*platform", r"supply.*demand.*match",
-    # Feed and personalization
-    r"feed rank", r"content rank", r"personali[sz]ation", r"personali[sz]ed feed",
-    r"home.*feed", r"news.*feed.*rank", r"relevance.*feed",
-    # Recommendation systems (broad)
-    r"recomm.*system", r"recomm.*engine", r"collaborative.*filter",
-    r"content.based.*filter", r"item.*embed", r"user.*embed",
-    r"matrix.*factori", r"item2vec", r"user2item",
-    # Search and retrieval (plain language)
-    r"search.*engine", r"search.*pipeline", r"search.*infra",
-    r"document.*retriev", r"query.*retriev", r"result.*rank",
-    r"relevance.*engin", r"relevance.*score", r"relevance.*model",
-    # Ranking systems (plain language)
-    r"ranking.*model", r"ranking.*system", r"ranking.*pipeline",
-    r"sort.*results", r"order.*results", r"scored.*results",
-    # Scoring systems
-    r"scoring.*model", r"candidate.*score", r"match.*score",
-    r"fit.*score", r"relevance.*score", r"quality.*score",
-]
+RETRIEVAL_PATTERNS = JD_FEATURE_CONTRACT["retrieval_patterns"]
+RANKING_PATTERNS = JD_FEATURE_CONTRACT["ranking_patterns"]
+RECOMMENDATION_PATTERNS = JD_FEATURE_CONTRACT["recommendation_patterns"]
+EVALUATION_PATTERNS = JD_FEATURE_CONTRACT["target_skills"]["eval_framework"]
+PRODUCTION_PATTERNS = JD_FEATURE_CONTRACT["production_patterns"]
+SHIPPER_TERMS = JD_FEATURE_CONTRACT["shipper_terms"]
+RESEARCHER_TERMS = JD_FEATURE_CONTRACT["researcher_terms"]
+SYSTEM_SEMANTICS_PATTERNS = JD_FEATURE_CONTRACT["system_semantics_patterns"]
 
 # ---------------------------------------------------------------------------
 # Bucket A — Target Skills
 # ---------------------------------------------------------------------------
 
-TARGET_SKILLS: Dict[str, List[str]] = {
-    "retrieval_search": RETRIEVAL_PATTERNS + [r"bm25"],
-    "vector_db_hybrid": [
-        r"vector database", r"hybrid search", r"dense retrieval", r"sparse retrieval",
-        r"embedding search", r"ann\b", r"approximate nearest",
-        r"faiss", r"pinecone", r"qdrant", r"milvus", r"weaviate", r"opensearch",
-    ],
-    "eval_framework": EVALUATION_PATTERNS,
-    "ltr_reranking": RANKING_PATTERNS + [r"cross.encoder", r"bi.encoder"],
-    "llm_integration": [
-        r"llm", r"fine.tuning", r"lora", r"qlora", r"peft", r"rag",
-        r"retrieval augmented", r"prompt engineering",
-        r"hugging.?face", r"transformers", r"gpt", r"claude", r"openai",
-    ],
-    # JD Must-Have: "Strong Python. Yes really, we care about code quality."
-    "python_coding": [
-        r"python", r"fastapi", r"flask", r"django", r"pyspark", r"asyncio",
-        r"pytest", r"type hints", r"mypy", r"poetry", r"pyproject",
-        r"pytorch", r"scikit.learn", r"numpy",
-    ],
-    "distributed_systems": [
-        r"distributed system", r"inference optimization", r"tensorrt", r"vllm",
-        r"triton", r"high throughput", r"large scale inference",
-        r"kubernetes", r"mlops", r"model monitoring",
-    ],
-    "hr_tech_exposure": [
-        r"hr tech", r"hr.tech", r"recruiting tech", r"talent acquisition",
-        r"applicant tracking", r"marketplace", r"job search", r"gig marketplace",
-    ],
-}
+TARGET_SKILLS: Dict[str, List[str]] = JD_FEATURE_CONTRACT["target_skills"]
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -242,22 +147,7 @@ def score_skill_bucket(
 # Bucket B — Career Quality Scoring
 # ---------------------------------------------------------------------------
 
-# Ownership language — founders, leads, greenfield builders
-_OWNERSHIP_PATTERNS = [
-    r"built from scratch", r"founded", r"co-founder", r"co.founder",
-    r"led.*team", r"ownership", r"end.to.end", r"greenfield", r"zero to one",
-    r"founding engineer", r"first.*ml.*engineer", r"first.*ai.*engineer",
-    r"sole owner", r"shipped to production", r"v1 of",
-]
-
-# Consulting firm name list (lowercase) — same as constants.py but local for pattern matching
-_CONSULTING_FIRMS = frozenset({
-    "tcs", "tata consultancy", "infosys", "wipro", "accenture", "cognizant",
-    "capgemini", "hcl", "tech mahindra", "mphasis", "hexaware", "mindtree",
-    "ltimindtree", "l&t infotech", "niit technologies", "zensar", "mastech",
-    "syntel", "kpit", "cyient", "birlasoft", "persistent systems",
-})
-_CONSULTING_INDUSTRIES = frozenset({"it services", "consulting", "outsourcing"})
+_OWNERSHIP_PATTERNS = JD_FEATURE_CONTRACT["ownership_patterns"]
 
 
 def compute_product_ratio(candidate: Dict[str, Any]) -> float:
@@ -275,8 +165,8 @@ def compute_product_ratio(candidate: Dict[str, Any]) -> float:
 
     consulting_months = sum(
         r.get("duration_months", 0) or 0 for r in career
-        if any(firm in r.get("company", "").lower() for firm in _CONSULTING_FIRMS)
-        or r.get("industry", "").lower() in _CONSULTING_INDUSTRIES
+        if any(firm in r.get("company", "").lower() for firm in constants.CONSULTING_FIRMS)
+        or r.get("industry", "").lower() in constants.CONSULTING_INDUSTRIES
     )
     return round(1.0 - (consulting_months / total_months), 4)
 
@@ -374,11 +264,11 @@ def score_career_quality(
     )
     # Disqualifier multipliers (consulting/research backgrounds penalised)
     if flags.get("consulting_only"):
-        product_builder_score *= 0.4
+        product_builder_score *= JD_FEATURE_CONTRACT["multiplier_values"]["consulting_heavy_soft_penalty"]
     if flags.get("research_only"):
-        product_builder_score *= 0.5
+        product_builder_score *= JD_FEATURE_CONTRACT["multiplier_values"]["pure_research_penalty"]
     if flags.get("wrong_domain"):
-        product_builder_score *= 0.3
+        product_builder_score *= JD_FEATURE_CONTRACT["multiplier_values"]["computer_vision_trap"]
 
     return {
         "product_ratio":         product_ratio,
@@ -397,32 +287,18 @@ def score_career_quality(
 # Bucket C — JD Fit Gaps
 # ---------------------------------------------------------------------------
 
-_EXTERNAL_VALIDATION_TERMS = [
-    r"open.source", r"github", r"published", r"publication", r"paper",
-    r"conference", r"talk", r"speaker", r"blog", r"maintainer", r"contributor",
-]
-
-_STOPPED_CODING_TITLES = frozenset({
-    "architect", "vp", "vice president", "director", "cto", "head of",
-    "principal", "distinguished",
-})
-
-_FRAMEWORK_DEMO_TERMS = [
-    r"langchain", r"openai.*api", r"chatgpt.*api", r"gpt.*wrapper",
-    r"llamaindex", r"llama.index",
-]
-
-_PRE_LLM_PRODUCTION_TERMS = [
-    r"faiss", r"elasticsearch", r"opensearch", r"bm25", r"xgboost.*rank",
-    r"tensorflow.*serving", r"pytorch.*production", r"recommendation.*system",
-    r"retrieval.*system", r"search.*engine",
-]
+_EXTERNAL_VALIDATION_TERMS = JD_FEATURE_CONTRACT["external_validation_terms"]
+_STOPPED_CODING_TITLES = frozenset(JD_FEATURE_CONTRACT["stopped_coding_titles"])
+_HANDS_ON_TITLE_TERMS = frozenset(JD_FEATURE_CONTRACT["hands_on_title_terms"])
+_FRAMEWORK_DEMO_TERMS = JD_FEATURE_CONTRACT["framework_demo_terms"]
+_PRE_LLM_PRODUCTION_TERMS = JD_FEATURE_CONTRACT["pre_llm_production_terms"]
 
 
 def score_fit_gaps(
     candidate: Dict[str, Any],
     career_text: str,
     flags: Dict[str, Any],
+    bucket_a: Dict[str, float] | None = None,
 ) -> Dict[str, Any]:
     """
     Compute Bucket C: gap flags that down-weight or disqualify.
@@ -430,6 +306,7 @@ def score_fit_gaps(
     """
     career = candidate.get("career_history", [])
     profile = candidate.get("profile", {})
+    bucket_a = bucket_a or {}
 
     # --- Title velocity: avg tenure < 18 months across 3+ roles ---
     # Exclude current role (duration still accumulating)
@@ -460,23 +337,24 @@ def score_fit_gaps(
     yoe = profile.get("years_of_experience", -1)  # -1 sentinel if missing
     current_title = profile.get("current_title", "UNKNOWN").lower()
     # Sentinel guard: yoe=-1, -1 > 8 is False → not flagged when YoE missing
-    code_stopped = (yoe > 8) and any(t in current_title for t in _STOPPED_CODING_TITLES)
+    code_stopped = (
+        yoe > 8
+        and not any(t in current_title for t in _HANDS_ON_TITLE_TERMS)
+        and any(t in current_title for t in _STOPPED_CODING_TITLES)
+    )
 
-    # --- Seniority score: continuous bands aligned with JD (6-8 years ideal) ---
-    if yoe == -1:  # Sentinel: missing YoE → neutral
+    # --- Seniority score: continuous bands aligned with JD_contract.yaml ---
+    if yoe == -1:  # Sentinel: missing YoE -> neutral
         seniority_score = 1.0
-    elif 5.0 <= yoe < 10.0:
-        seniority_score = 1.00   # Sweet spot
-    elif 4.0 <= yoe < 5.0:
-        seniority_score = 0.95   # Slightly junior
-    elif 10.0 <= yoe < 13.0:
-        seniority_score = 0.95   # Mildly over-senior
-    elif 0.0 <= yoe < 4.0:
-        seniority_score = 0.75   # Junior
-    elif yoe >= 13.0:
-        seniority_score = 0.90   # Over-senior
     else:
-        seniority_score = 1.00   # Fallback
+        seniority_score = 1.0
+        for band in JD_FEATURE_CONTRACT["seniority_bands"]:
+            try:
+                if float(band["min"]) <= yoe <= float(band["max"]):
+                    seniority_score = float(band["multiplier"])
+                    break
+            except (KeyError, TypeError, ValueError):
+                continue
 
     # --- LangChain-only flag ---
     has_framework_demo = (
@@ -488,10 +366,29 @@ def score_fit_gaps(
     ai_skill_months = sum(
         s.get("duration_months", 0) or 0
         for s in candidate.get("skills", [])
-        if any(kw in s.get("name", "").lower() for kw in ["llm", "gpt", "langchain", "openai", "ai"])
+        if any(kw in s.get("name", "").lower() for kw in _FRAMEWORK_DEMO_TERMS + ["llm", "gpt", "ai"])
     )
     langchain_only_flag = (
         has_framework_demo and not has_pre_llm_production and ai_skill_months < 12
+    )
+
+    ai_skill_count = 0
+    for skill_name in _skill_names_lower(candidate):
+        if any(
+            re.search(pattern, skill_name, re.IGNORECASE)
+            for patterns in TARGET_SKILLS.values()
+            for pattern in patterns
+        ):
+            ai_skill_count += 1
+
+    has_core_career_evidence = any(
+        bucket_a.get(name, 0.0) >= 2.0
+        for name in ("retrieval_search", "vector_db_hybrid", "eval_framework", "ltr_reranking")
+    )
+    keyword_stuffer_flag = (
+        ai_skill_count >= 5
+        and not has_core_career_evidence
+        and not any(t in current_title for t in _HANDS_ON_TITLE_TERMS)
     )
 
     # --- Closed-source flag: 5+ years without any external validation ---
@@ -505,6 +402,7 @@ def score_fit_gaps(
         "code_stopped":         code_stopped,
         "seniority_score":      seniority_score,
         "langchain_only_flag":  langchain_only_flag,
+        "keyword_stuffer_flag": keyword_stuffer_flag,
         "closed_source_flag":   closed_source_flag,
     }
 
@@ -619,17 +517,24 @@ def extract_features(
     bucket_b = score_career_quality(candidate, career_text, flags)
 
     # Bucket C
-    bucket_c = score_fit_gaps(candidate, career_text, flags)
+    bucket_c = score_fit_gaps(candidate, career_text, flags, bucket_a)
 
     # 90-day alignment
     alignment = compute_ninety_day_alignment(bucket_a, bucket_b["product_ratio"])
 
     # Behavioral (pass-through for Phase 5)
     behavioral = extract_behavioral(candidate)
+    profile = candidate.get("profile", {})
 
     # Assemble flat output dict (matches candidate_features.parquet schema)
     features: Dict[str, Any] = {
         "candidate_id": candidate.get("candidate_id", "UNKNOWN"),
+        # Profile facts for Phase 6 reasoning. These are copied directly from
+        # the candidate JSON so explanations can be specific without guessing.
+        "profile_current_title": profile.get("current_title", "UNKNOWN"),
+        "profile_current_company": profile.get("current_company", "UNKNOWN"),
+        "profile_years_of_experience": profile.get("years_of_experience", -1),
+        "profile_location": profile.get("location", "UNKNOWN"),
         # Bucket A — evidence scores (0.0–3.0 + 0.5 assessment bonus)
         "retrieval_search":    bucket_a.get("retrieval_search", 0.0),
         "vector_db_hybrid":    bucket_a.get("vector_db_hybrid", 0.0),
@@ -656,6 +561,7 @@ def extract_features(
         "code_stopped":          bucket_c["code_stopped"],
         "seniority_score":       bucket_c["seniority_score"],
         "langchain_only_flag":   bucket_c["langchain_only_flag"],
+        "keyword_stuffer_flag":  bucket_c["keyword_stuffer_flag"],
         "closed_source_flag":    bucket_c["closed_source_flag"],
         # 90-day plan alignment
         "ninety_day_alignment": alignment,

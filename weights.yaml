@@ -7,7 +7,7 @@
 #   - Do NOT put structural constants here (batch sizes, file paths, model IDs).
 #     Those live in constants.py.
 #
-# Version: 1.1.0 (wired — all values now actually consumed by code)
+# Version: 1.1.1 (wired — scoring values consumed by code)
 
 # ---------------------------------------------------------------------------
 # Phase 4 — Core Scoring weights
@@ -115,8 +115,6 @@ behavioral:
   location_pune_noida_mult:        1.00
   location_welcome_cities_mult:    1.00  # hyderabad, mumbai (with relocation)
   location_welcome_no_reloc:       0.98
-  location_india_adjacent_mult:    0.98  # bangalore, chennai, etc. (with relocation)
-  location_india_adjacent_no_reloc: 0.95
   location_india_willing_mult:     0.95
   location_india_no_reloc_mult:    0.92
   location_abroad_willing_mult:    0.90
@@ -184,4 +182,4 @@ honeypot:
 # ---------------------------------------------------------------------------
 # Version tracking
 # ---------------------------------------------------------------------------
-version: "1.1.0"
+version: "1.1.1"
