@@ -33,9 +33,6 @@ Thumbs.db
 # Project artifacts (generated during pipeline)
 artifacts/*.jsonl
 artifacts/ranking_debug.csv
-artifacts/*.bin
-artifacts/*.pkl
-artifacts/*.npz
 
 # Keep plan backup in git
 !artifacts/plan_backup.md
@@ -62,6 +59,9 @@ temp/
 tmp/
 *.tmp
 *.log
+tmp_analyze.py
+tmp_deep_audit.py
+tmp_deep_audit_profiles.json
 
 # Resources
 Resources/
