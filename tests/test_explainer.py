@@ -48,8 +48,8 @@ def test_generate_reasoning_strong():
     }
     reason = generate_reasoning(cand)
     assert "Search Engineer at FindMe with 6.0 years of experience" in reason
-    assert "Strong evidence in Retrieval Systems" in reason
-    assert "Designed hybrid dense-sparse vector search using Qdrant." in reason
+    assert "Career text includes Retrieval Systems evidence" in reason
+    assert "Designed hybrid dense-sparse vector search using Qdrant" in reason
 
 def test_generate_reasoning_weak():
     cand = {

@@ -11,10 +11,10 @@ import json
 
 STRENGTH_DOMAINS = [
     ("retrieval_search", "Retrieval Systems"),
-    ("sys_experience_score", "Recommendation and Ranking Systems"),
-    ("vector_db_hybrid", "Vector Search Infrastructure"),
-    ("ltr_reranking", "Learning-to-Rank and Reranking"),
     ("eval_framework", "Evaluation Metrics"),
+    ("vector_db_hybrid", "Vector Search Infrastructure"),
+    ("sys_experience_score", "Recommendation and Ranking Systems"),
+    ("ltr_reranking", "Learning-to-Rank and Reranking"),
     ("product_builder_score", "Product ML & Scaling"),
     ("python_coding", "Python Engineering"),
     ("llm_integration", "LLM Integration & RAG")
@@ -30,55 +30,55 @@ TOP_RANK_PRIMARY_DOMAINS = (
 )
 
 LEAD_TEMPLATES_STRONG = {
-    "retrieval_search": "Strong evidence in Retrieval Systems, specifically: '{snippet}'.",
-    "sys_experience_score": "Significant experience building Recommendation and Ranking Systems.",
-    "vector_db_hybrid": "Deep expertise in Vector Search Infrastructure, notably: '{snippet}'.",
-    "ltr_reranking": "Strong evidence in Learning-to-Rank and Reranking, specifically: '{snippet}'.",
-    "eval_framework": "Rigorous focus on Evaluation Metrics and testing methodologies: '{snippet}'.",
-    "product_builder_score": "Proven track record in Product ML & Scaling across engineering teams.",
-    "python_coding": "Solid foundation in Python Engineering: '{snippet}'.",
-    "llm_integration": "Strong evidence of production LLM Integration: '{snippet}'."
+    "retrieval_search": "Career text includes Retrieval Systems evidence: {snippet}",
+    "sys_experience_score": "Career text includes Recommendation and Ranking Systems evidence: {snippet}",
+    "vector_db_hybrid": "Career text includes Vector Search Infrastructure evidence: {snippet}",
+    "ltr_reranking": "Career text includes Learning-to-Rank and Reranking evidence: {snippet}",
+    "eval_framework": "Career text includes Evaluation Metrics evidence: {snippet}",
+    "product_builder_score": "Career text includes Product ML and Scaling evidence: {snippet}",
+    "python_coding": "Career text includes Python Engineering evidence: {snippet}",
+    "llm_integration": "Career text includes LLM Integration or RAG evidence: {snippet}"
 }
 
 LEAD_TEMPLATES_WEAK = {
     "retrieval_search": [
         "Profile mentions retrieval/search, though production depth is less explicit.",
-        "Shows retrieval/search relevance, with limited scale evidence in the text.",
+        "Profile has retrieval/search evidence, with limited scale evidence in the extracted text.",
         "Has search-aligned evidence, but fewer concrete system details than top profiles."
     ],
     "sys_experience_score": [
         "Lists recommendation or ranking systems as a relevant skill.",
-        "Shows recommender/ranking alignment, with limited project detail.",
+        "Profile has recommender/ranking alignment, with limited extracted project detail.",
         "Has adjacent ranking-system evidence in the profile."
     ],
     "vector_db_hybrid": [
         "Mentions vector search or vector databases, with limited production context.",
-        "Shows vector-search relevance, but fewer deployment details than stronger profiles.",
+        "Profile has vector-search evidence, but fewer extracted deployment details than stronger profiles.",
         "Has vector/hybrid search evidence at a lighter level."
     ],
     "ltr_reranking": [
         "Mentions learning-to-rank or reranking, with limited production context.",
-        "Shows ranking-model alignment, but less concrete deployment evidence.",
+        "Profile has ranking-model evidence, but less concrete deployment evidence.",
         "Has reranking evidence, though system ownership is not deeply described."
     ],
     "eval_framework": [
         "References evaluation metrics without a full ranking-quality framework.",
-        "Shows measurement awareness, with limited experiment-system detail.",
+        "Profile has measurement evidence, with limited experiment-system detail.",
         "Has evaluation evidence, though the system framing is lighter."
     ],
     "product_builder_score": [
         "Has product-company experience, with limited ML scaling detail.",
-        "Shows product exposure, though the ML ownership signal is lighter.",
+        "Profile has product exposure, though the ML ownership signal is lighter.",
         "Product background is relevant, but technical scaling evidence is thinner."
     ],
     "python_coding": [
         "Mentions Python, with limited core engineering context.",
-        "Shows Python relevance, but implementation depth is not strongly described.",
+        "Profile has Python evidence, but implementation depth is not strongly described.",
         "Has coding evidence at a lighter level than top engineering profiles."
     ],
     "llm_integration": [
         "Lists LLM/RAG capabilities, with limited production-scale evidence.",
-        "Shows LLM/RAG relevance, though deployment context is lighter.",
+        "Profile has LLM/RAG evidence, though deployment context is lighter.",
         "Has LLM integration evidence adjacent to the retrieval role."
     ]
 }
@@ -127,10 +127,10 @@ LEAD_TEMPLATES_MODERATE = {
 }
 
 SUPPORT_TEMPLATES = [
-    "Also demonstrates capabilities in {secondary_name}",
-    "Secondary support comes from {secondary_name}",
-    "The profile also has {secondary_name} coverage",
-    "Additional JD alignment appears in {secondary_name}"
+    "Also mentions {secondary_name}: {snippet}",
+    "Secondary {secondary_name} evidence: {snippet}",
+    "Another extracted {secondary_name} signal is: {snippet}",
+    "Additional {secondary_name} evidence appears in: {snippet}"
 ]
 
 
@@ -144,13 +144,36 @@ def _variant(cand: dict, count: int) -> int:
 def _trim_snippet(snippet: str, limit: int = 80) -> str:
     clean = " ".join(str(snippet or "").strip().split())
     clean = clean.lstrip(" ,.;:-")
+    first_piece = clean.split(" ", 1)[0] if clean else ""
+    if (
+        first_piece.endswith(".")
+        and first_piece[:-1].islower()
+        and len(first_piece[:-1]) <= 8
+        and " " in clean
+    ):
+        clean = clean.split(" ", 1)[1].lstrip(" ,.;:-")
     first_word = clean.split(" ", 1)[0] if clean else ""
     allowed_lower_starts = {"a", "an", "and", "at", "built", "for", "in", "of", "on", "the", "to", "with"}
     if first_word.isalpha() and first_word.islower() and first_word not in allowed_lower_starts:
         clean = clean.split(" ", 1)[1] if " " in clean else clean
     if len(clean) > limit:
-        clean = clean[: limit - 3].rsplit(" ", 1)[0].rstrip(" ,.;:-") + "..."
+        clean = clean[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:-")
+    elif clean.endswith("."):
+        clean = clean[:-1]
     return clean
+
+
+def _finish_sentence(text: str) -> str:
+    clean = str(text or "").rstrip()
+    if not clean:
+        return clean
+    if clean.endswith((".", "!", "?", "...")):
+        return clean
+    return f"{clean}."
+
+
+def _snippet_for(snippets: dict, key: str) -> str:
+    return _trim_snippet(snippets.get(key, ""))
 
 
 def _behavioral_summary(cand: dict) -> str:
@@ -170,7 +193,7 @@ def _behavioral_summary(cand: dict) -> str:
     try:
         if response_rate is not None:
             rate = float(response_rate)
-            if rate >= 0.75 or rate < 0.20:
+            if rate >= 0.60 or rate < 0.50:
                 parts.append(f"{int(round(rate * 100))}% recruiter response")
     except (TypeError, ValueError):
         pass
@@ -197,30 +220,59 @@ def get_largest_concern(cand: dict) -> str:
         return "Primary experience is outside NLP/Search domains."
     if cand.get("langchain_only_flag", False):
         return "Heavy reliance on LLM wrappers (LangChain) without deep ML infrastructure evidence."
+    if cand.get("isolated_template_risk", False):
+        return "Core IR evidence appears isolated relative to the broader career pattern."
+    if cand.get("career_ir_density", 1.0) < 0.40 and cand.get("adjacent_career_ratio", 0.0) >= 0.40:
+        return "Broader career pattern leans toward adjacent ML/chatbot/MLOps rather than sustained search or ranking ownership."
+    location = str(cand.get("beh_location") or "").strip()
+    country = str(cand.get("beh_country") or "").strip().lower()
+    preferred_fragments = (
+        "pune", "noida", "gurgaon", "gurugram", "delhi", "new delhi",
+        "faridabad", "ghaziabad", "hyderabad", "mumbai",
+    )
+    willing = cand.get("beh_willing_to_relocate", False)
+    outside_preferred = location and not any(fragment in location.lower() for fragment in preferred_fragments)
+    notice_days = cand.get("beh_notice_period_days")
+    try:
+        notice_float = float(notice_days) if notice_days is not None else None
+    except (TypeError, ValueError):
+        notice_float = None
+    if (
+        notice_float is not None
+        and notice_float > 90
+        and outside_preferred
+        and not willing
+    ):
+        return f"{int(notice_float)}-day notice plus no indicated relocation outside the JD's preferred or welcome city list raises hiring friction."
+    if notice_float is not None and notice_float > 90:
+        return f"Long notice period ({int(notice_float)} days) raises hiring friction."
+    if notice_float is not None and notice_float >= 90:
+        return f"{int(notice_float)}-day notice raises the hiring bar for this role."
+    if country and country != "india":
+        return "Located outside India, which the JD treats as case-by-case."
+    if outside_preferred and not willing:
+        return "Location is outside the JD's preferred or welcome city list and relocation is not indicated."
+    if outside_preferred:
+        return "Location is outside the JD's preferred or welcome city list."
+    target_contradictions = cand.get("target_skill_duration_contradiction", 0) or 0
+    skill_contradictions = cand.get("contradiction_skill_duration", 0) or 0
+    try:
+        target_contradictions = int(target_contradictions)
+    except (TypeError, ValueError):
+        target_contradictions = 0
+    try:
+        skill_contradictions = int(skill_contradictions)
+    except (TypeError, ValueError):
+        skill_contradictions = 0
+    if target_contradictions > 0 or skill_contradictions > 0:
+        total = target_contradictions + skill_contradictions
+        return f"Skill-duration metadata has {total} overclaim signal(s), so duration claims are not used in this explanation."
     if cand.get("consulting_flag", False) or cand.get("consulting_only", False):
         return "Career arc leans heavily toward consulting rather than core product ownership."
     if cand.get("code_stopped", False):
         return "Seniority indicates candidate may have shifted away from hands-on coding."
     if cand.get("title_velocity_flag", False):
         return "Frequent title changes noted across recent roles."
-    notice_days = cand.get("beh_notice_period_days")
-    if notice_days is not None:
-        try:
-            if float(notice_days) > 90:
-                return f"Long notice period ({int(float(notice_days))} days) raises hiring friction."
-        except (TypeError, ValueError):
-            pass
-
-    location = str(cand.get("beh_location") or "").strip()
-    country = str(cand.get("beh_country") or "").strip().lower()
-    if country and country != "india":
-        return "Located outside India, which the JD treats as case-by-case."
-    preferred_fragments = (
-        "pune", "noida", "gurgaon", "gurugram", "delhi", "new delhi",
-        "faridabad", "ghaziabad", "hyderabad", "mumbai",
-    )
-    if location and not any(fragment in location.lower() for fragment in preferred_fragments):
-        return "Location is outside the JD's preferred or welcome city list."
     return ""
 
 
@@ -278,22 +330,19 @@ def generate_reasoning(cand: dict) -> str:
         (None, None),
     )
     primary_score = cand.get(primary_key, 0.0)
+    primary_snippet = _snippet_for(snippets, primary_key)
     
     # 2. Lead sentence
     # A score >= 3.0 means they had career description evidence WITH production/scale context.
     # Score 2.0 means they just mentioned it in text. Score 1.0 means just in skills list.
     if rank <= 30 and primary_score >= 3.0:
-        snippet = snippets.get(primary_key, "")
-        if snippet and "{snippet}" in LEAD_TEMPLATES_STRONG.get(primary_key, ""):
-            clean_snippet = _trim_snippet(snippet)
-            lead = LEAD_TEMPLATES_STRONG[primary_key].format(snippet=clean_snippet)
+        if primary_snippet and "{snippet}" in LEAD_TEMPLATES_STRONG.get(primary_key, ""):
+            lead = _finish_sentence(LEAD_TEMPLATES_STRONG[primary_key].format(snippet=primary_snippet))
         else:
-            lead = f"Candidate shows strong evidence in {primary_name}."
+            lead = f"Extracted feature scores indicate {primary_name}, but no career-text snippet was available."
     elif rank <= 30 and primary_score >= 2.0:
-        snippet = snippets.get(primary_key, "")
-        if rank <= 15 and snippet:
-            clean_snippet = _trim_snippet(snippet)
-            lead = f"Profile evidence in {primary_name}, specifically: '{clean_snippet}'."
+        if primary_snippet:
+            lead = _finish_sentence(f"Career text includes {primary_name} evidence: {primary_snippet}")
         else:
             options = LEAD_TEMPLATES_MODERATE.get(primary_key, [f"Profile text shows relevant {primary_name} evidence."])
             lead = options[_variant(cand, len(options))]
@@ -301,7 +350,7 @@ def generate_reasoning(cand: dict) -> str:
         options = LEAD_TEMPLATES_WEAK.get(primary_key, [f"Mentions {primary_name} in profile text, though production depth is less explicit."])
         lead = options[_variant(cand, len(options))]
     elif primary_score > 0.0:
-        lead = f"Lists {primary_name} in skills without career context."
+        lead = f"Extracted skills map to {primary_name}, but no career-description snippet was available."
     else:
         lead = "Limited direct evidence found for core technical requirements."
 
@@ -312,9 +361,18 @@ def generate_reasoning(cand: dict) -> str:
     # 3. Support sentence
     support = ""
     # Only offer a supportive secondary capability if they are highly ranked and actually have the skill
-    if rank <= 50 and secondary_key and cand.get(secondary_key, 0.0) >= 1.0:
+    if rank <= 15 and cand.get("career_ir_density", 0.0) >= 0.60:
+        support = "Career-history features show sustained search/ranking/evaluation density"
+    elif rank <= 50 and secondary_key and cand.get(secondary_key, 0.0) >= 2.0:
+        secondary_snippet = _snippet_for(snippets, secondary_key)
+        if secondary_snippet:
+            template = SUPPORT_TEMPLATES[_variant(cand, len(SUPPORT_TEMPLATES))]
+            support = template.format(secondary_name=secondary_name, snippet=secondary_snippet)
+    elif rank <= 50 and secondary_key and cand.get(secondary_key, 0.0) >= 1.0:
         template = SUPPORT_TEMPLATES[_variant(cand, len(SUPPORT_TEMPLATES))]
-        support = template.format(secondary_name=secondary_name)
+        secondary_snippet = _snippet_for(snippets, secondary_key)
+        if secondary_snippet:
+            support = template.format(secondary_name=secondary_name, snippet=secondary_snippet)
     elif rank <= 30:
         milestone = get_90day_milestone(primary_key)
         support = f"best positioned for {milestone}"
@@ -325,19 +383,26 @@ def generate_reasoning(cand: dict) -> str:
     
     # JD mandates: If rank > 30, concerns must be acknowledged if present
     # If rank > 70, gap acknowledgment is mandatory
-    if concern_text and (rank > 30 or "notice period" in concern_text or "Location" in concern_text or "outside India" in concern_text):
-        caveat = f"note: {concern_text}"
+    if concern_text and (
+        rank > 30
+        or "notice period" in concern_text
+        or "Location" in concern_text
+        or "outside India" in concern_text
+        or "isolated" in concern_text
+        or "career pattern" in concern_text
+    ):
+        caveat = f"Note: {concern_text}"
     elif rank > 70 and not concern_text:
         # We must acknowledge a gap for low-ranked candidates
         # If score is very low, make it clear
         if cand.get("core_score", 0.0) < 40.0:
-            caveat = "note: failed to meet the technical depth required for the JD"
+            caveat = "Note: failed to meet the technical depth required for the JD"
         else:
-            caveat = "note: overall evidence density is lower than top-tier candidates"
+            caveat = "Note: overall evidence density is lower than top-tier candidates"
 
     behavioral = _behavioral_summary(cand)
     if behavioral:
-        behavioral = f"hiring signal: {behavioral}"
+        behavioral = f"Hiring signal: {behavioral}"
 
     second_parts = [p.rstrip(".") for p in [support, behavioral, caveat] if p]
     if second_parts:

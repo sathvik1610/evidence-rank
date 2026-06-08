@@ -7,7 +7,7 @@ from src.behavioral import (
     social_proof_boost, seniority_modifier, soft_penalties,
     has_floor_exempt_penalty, compute_final_score, assign_ranks,
     has_adjacent_domain_weak_ir, has_current_consulting_weak_ir,
-    has_long_notice_weak_eval, yoe_floor_modifier,
+    has_long_notice_weak_eval, yoe_floor_modifier, has_bad_logistics_combo,
 )
 from src.weights import W
 
@@ -31,11 +31,19 @@ def test_reachability_multiplier():
     # Expected: 1.0 * inactive_heavy_mult (0.50)
     assert abs(reachability_multiplier(cand_inactive, ref) - W["behavioral.inactive_heavy_mult"]) < 1e-9
 
-    # Not open to work candidate
-    cand_not_open = {
+    # Responsive passive candidate: do not double-penalize if recruiters can reach them.
+    cand_responsive_passive = {
         "beh_last_active_date": "2026-05-30",
         "beh_open_to_work": False,
         "beh_recruiter_response_rate": 0.90
+    }
+    assert reachability_multiplier(cand_responsive_passive, ref) == 1.0
+
+    # Not open to work candidate with weak response signal.
+    cand_not_open = {
+        "beh_last_active_date": "2026-05-30",
+        "beh_open_to_work": False,
+        "beh_recruiter_response_rate": 0.40
     }
     assert abs(reachability_multiplier(cand_not_open, ref) - W["behavioral.not_open_mult"]) < 1e-9
 
@@ -173,7 +181,26 @@ def test_soft_penalties():
     assert has_long_notice_weak_eval({
         "beh_notice_period_days": W["behavioral.notice_moderate_days"],
         "eval_framework": 0.0,
-    }) is False
+    }) is True
+
+    cand_bad_logistics = {
+        "beh_notice_period_days": W["behavioral.notice_moderate_days"],
+        "beh_location": "Kolkata",
+        "beh_country": "India",
+        "beh_willing_to_relocate": False,
+    }
+    assert has_bad_logistics_combo(cand_bad_logistics) is False
+    assert abs(
+        soft_penalties(cand_bad_logistics)
+        - (
+            W["soft_penalties.long_notice_weak_eval_mult"]
+            * W["soft_penalties.no_reloc_outside_preferred_mult"]
+        )
+    ) < 1e-9
+
+    cand_bad_logistics["beh_notice_period_days"] = W["behavioral.notice_moderate_days"] + 30
+    assert has_bad_logistics_combo(cand_bad_logistics) is True
+    assert soft_penalties(cand_bad_logistics) < W["soft_penalties.no_reloc_outside_preferred_mult"]
 
     # Keyword stuffer
     assert soft_penalties({"keyword_stuffer_flag": True}) < 1.0
