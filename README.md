@@ -23,6 +23,12 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
 
+### 3. Running Tests
+The unit test suite validates scoring formulas, re-ranking multipliers, location bands, reason generation, and sparse matrix arithmetic. Run all tests with:
+```bash
+pytest -v
+```
+
 > **Runtime:** ~2.3 sec · **RAM:** < 1 GB · **Compute:** CPU only · **Network:** None
 
 ---
