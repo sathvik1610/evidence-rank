@@ -1,5 +1,6 @@
 {
-  "run_time": "2026-06-07T15:42:47.218257Z",
-  "candidate_count": 50,
-  "skip_embed": true
+  "reference_date": "2026-05-27",
+  "run_time": "2026-06-07T22:58:42.848202Z",
+  "candidate_count": 100000,
+  "skip_embed": false
 }

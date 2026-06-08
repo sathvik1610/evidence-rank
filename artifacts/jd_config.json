@@ -1,0 +1,30 @@
+{
+  "source_contract": "metadata/JD_contract.yaml",
+  "source_jd_text": "Resources/job_description.txt",
+  "contract_version": "10.0-final",
+  "role_intent": "Redrob Senior AI Engineer JD intent contract. Optimized for retrieval/ranking/search ownership, evaluation culture, product execution, and candidate hireability.",
+  "must_have": [
+    "production retrieval, search, vector, and hybrid-search systems: bm25, retrieval system, information retrieval, search relevance, search quality, dense retrieval, sparse retrieval, hybrid search, semantic search, vector search, candidate retrieval, query understanding, retrieval pipeline, ranking pipeline, sentence-transformers, sentence transformers, faiss, pinecone, weaviate, milvus, qdrant, elasticsearch, opensearch, lucene",
+    "ranking, recommendation, matching, and marketplace relevance systems: recommendation engine, recommendation platform, recommender system, recommendation system, recommendation systems, collaborative filtering, matrix factorization, candidate matching, candidate ranking, talent matching, marketplace ranking, feed ranking, ads ranking, personalization, ranking model, learning to rank, ltr, xgboost rank, xgboost ranking, lambdamart, cross encoder, cross-encoder",
+    "ranking evaluation, offline/online metrics, A/B interpretation, and feedback loops: ndcg, ndcg@, mean reciprocal rank, mrr@, mean average precision, map@, precision at k, ranking a/b test, search a/b test, retrieval experiment, ranking experiment, a/b testing framework, experimentation platform, online experiments, offline benchmarks, offline evaluation, relevance labeling, human evaluation, golden dataset, ranking benchmark",
+    "strong hands-on Python engineering and ML implementation: python, pytorch, scikit-learn, numpy, fastapi, flask, pydantic, pytest, hugging face, huggingface, transformers, weights and biases"
+  ],
+  "nice_to_have": [
+    "LLM fine-tuning and applied LLM integration: lora, qlora, peft, fine-tuning, finetuning, rlhf, dpo, sft, instruction tuning, llm fine-tuning",
+    "distributed systems, model serving, and inference optimization: distributed systems, inference optimization, tensorrt, vllm, triton, model serving, latency optimization, high throughput",
+    "HR-tech, recruiting, job marketplace, or talent-platform exposure: hr tech, recruiting, talent acquisition, applicant tracking, job search, job marketplace, gig marketplace, staffing, talent platform"
+  ],
+  "product_builder": [
+    "scrappy product-engineering behavior and shipping to real users: shipped, launched, productionized, from prototype to production, built and iterated, rapid iteration, real users, user feedback, feedback loop, recruiter feedback",
+    "production operational pain such as drift, index refresh, regressions, and latency: schema drift, model drift, embedding drift, retrieval regression, latency regression, index refresh, index rebuild, indexing pipeline, incident response, on call, production traffic, model serving",
+    "end-to-end ownership of relevant production systems: owned end-to-end, built from scratch, led the development, drove adoption, sole owner, founding engineer, shipped to production, zero to one, v1 of, rapid iteration"
+  ],
+  "disqualifier_multiplier_ids": [
+    "consulting_heavy_soft_penalty",
+    "recent_ai_skill_only_penalty",
+    "langchain_tourist_trap",
+    "keyword_stuffer_penalty",
+    "computer_vision_trap",
+    "pure_research_penalty"
+  ]
+}
