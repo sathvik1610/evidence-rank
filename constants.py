@@ -11,10 +11,11 @@ Rules:
 # ---------------------------------------------------------------------------
 # Dataset paths
 # ---------------------------------------------------------------------------
-CANDIDATES_JSONL = "Resources/candidates.jsonl"
-SAMPLE_CANDIDATES_JSON = "Resources/sample_candidates.json"
+CANDIDATES_JSONL = "candidates.jsonl"
+SAMPLE_CANDIDATES_JSON = "sample_candidates.json"
+JD_TEXT = "job_description.txt"
 SUBMISSION_TEMPLATE = "Resources/submission_metadata_template.yaml"
-VALIDATE_SUBMISSION_SCRIPT = "Resources/validate_submission.py"
+VALIDATE_SUBMISSION_SCRIPT = "validate_submission.py"
 
 # ---------------------------------------------------------------------------
 # Metadata / contracts
