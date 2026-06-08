@@ -43,6 +43,7 @@ models/
 # HuggingFace model cache
 .cache/
 
+result_before_arch_change.csv
 # Submission outputs
 submission.csv
 BuriBuri.csv
