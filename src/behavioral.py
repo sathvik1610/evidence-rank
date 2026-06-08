@@ -17,6 +17,65 @@ JD_FEATURE_CONTRACT = build_feature_contract(constants.JD_CONTRACT_YAML)
 PREFERRED_CITIES = set(JD_FEATURE_CONTRACT["location_bands"].get("preferred", []))
 WELCOME_CITIES = set(JD_FEATURE_CONTRACT["location_bands"].get("welcome", []))
 FLOOR_EXEMPT_MULTIPLIERS = set(JD_FEATURE_CONTRACT["floor_exempt_multiplier_ids"])
+ADJACENT_DOMAIN_TITLE_TERMS = tuple(W["soft_penalties.adjacent_domain_title_terms"])
+REMOTE_WORK_MODE_ALIASES = set(W["soft_penalties.remote_work_mode_aliases"])
+
+
+def _current_title(cand: dict) -> str:
+    return (cand.get("profile_current_title") or "").lower()
+
+
+def _current_company(cand: dict) -> str:
+    return (cand.get("profile_current_company") or "").lower()
+
+
+def has_weak_core_ir_evidence(cand: dict) -> bool:
+    """Weak project evidence for the core retrieval/vector/eval requirements."""
+    return (
+        cand.get("retrieval_search", 0.0) < W["soft_penalties.weak_ir_retrieval_threshold"]
+        and cand.get("vector_db_hybrid", 0.0) < W["soft_penalties.weak_ir_vector_threshold"]
+        and cand.get("eval_framework", 0.0) < W["soft_penalties.weak_ir_eval_threshold"]
+    )
+
+
+def has_adjacent_domain_weak_ir(cand: dict) -> bool:
+    title = _current_title(cand)
+    return any(term in title for term in ADJACENT_DOMAIN_TITLE_TERMS) and has_weak_core_ir_evidence(cand)
+
+
+def has_current_consulting_weak_ir(cand: dict) -> bool:
+    company = _current_company(cand)
+    current_consulting = any(firm in company for firm in constants.CONSULTING_FIRMS)
+    return current_consulting and (
+        has_weak_core_ir_evidence(cand)
+        or cand.get("product_builder_score", 1.0) < W["soft_penalties.current_consulting_product_builder_threshold"]
+    )
+
+
+def has_long_notice_weak_eval(cand: dict) -> bool:
+    notice_days = cand.get("beh_notice_period_days")
+    if notice_days is None:
+        return False
+    return (
+        notice_days > W["behavioral.notice_moderate_days"]
+        and cand.get("eval_framework", 0.0) < W["soft_penalties.weak_ir_eval_threshold"]
+    )
+
+
+def yoe_floor_modifier(cand: dict) -> float:
+    """Apply the JD's higher bar for candidates below the 5-year preference."""
+    try:
+        yoe = float(cand.get("profile_years_of_experience", 0.0))
+    except (TypeError, ValueError):
+        return 1.0
+
+    if yoe <= 0:
+        return 1.0
+    if yoe < W["soft_penalties.yoe_far_below_floor_years"]:
+        return W["soft_penalties.yoe_far_below_floor_mult"]
+    if yoe < W["soft_penalties.yoe_floor_years"]:
+        return W["soft_penalties.yoe_below_floor_mult"]
+    return 1.0
 
 
 def reachability_multiplier(cand: dict, reference_date: date) -> float:
@@ -33,7 +92,7 @@ def reachability_multiplier(cand: dict, reference_date: date) -> float:
         except ValueError:
             pass
 
-    if not cand.get("beh_open_to_work", True):
+    if cand.get("beh_open_to_work") is False:
         mult *= W["behavioral.not_open_mult"]
 
     if cand.get("beh_recruiter_response_rate", 1.0) < W["behavioral.low_response_rate_threshold"]:
@@ -129,7 +188,7 @@ def soft_penalties(cand: dict) -> float:
         multiplier *= JD_FEATURE_CONTRACT["multiplier_values"]["keyword_stuffer_penalty"]
 
     pref_mode = cand.get("beh_preferred_work_mode", "").lower().strip()
-    if pref_mode in ("remote", "wfh", "work from home"):
+    if pref_mode in REMOTE_WORK_MODE_ALIASES:
         multiplier *= W["soft_penalties.remote_pref_mult"]
 
     if cand.get("research_only", False):
@@ -140,6 +199,23 @@ def soft_penalties(cand: dict) -> float:
 
     if cand.get("closed_source_flag", False):
         multiplier *= W["soft_penalties.closed_source_mult"]
+
+    target_duration_contradictions = cand.get("target_skill_duration_contradiction", 0)
+    if target_duration_contradictions >= 2:
+        multiplier *= W["soft_penalties.target_skill_duration_multi_mult"]
+    elif target_duration_contradictions == 1:
+        multiplier *= W["soft_penalties.target_skill_duration_one_mult"]
+
+    if has_adjacent_domain_weak_ir(cand):
+        multiplier *= W["soft_penalties.adjacent_domain_weak_ir_mult"]
+
+    if has_current_consulting_weak_ir(cand):
+        multiplier *= W["soft_penalties.current_consulting_weak_ir_mult"]
+
+    if has_long_notice_weak_eval(cand):
+        multiplier *= W["soft_penalties.long_notice_weak_eval_mult"]
+
+    multiplier *= yoe_floor_modifier(cand)
 
     return multiplier
 
@@ -152,14 +228,20 @@ def has_floor_exempt_penalty(cand: dict) -> bool:
         or ("computer_vision_trap" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("wrong_domain", False))
         or ("langchain_tourist_trap" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("langchain_only_flag", False))
         or ("keyword_stuffer_penalty" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("keyword_stuffer_flag", False))
+        or has_adjacent_domain_weak_ir(cand)
+        or has_current_consulting_weak_ir(cand)
     )
 
 
 def compute_final_score(cand: dict, reference_date: date) -> float:
     phase4_score = cand.get("final_phase4_score", 0.0)
 
-    # Honeypot / Impossible kill switch
-    if cand.get("impossible_flag", False) or cand.get("suspicious_flag", False):
+    # Honeypot / Impossible / Ghost kill switch
+    if (
+        cand.get("impossible_flag", False)
+        or cand.get("suspicious_flag", False)
+        or cand.get("is_ghost", False)
+    ):
         return phase4_score * W["behavioral.honeypot_multiplier"]
 
     reachability_mult = reachability_multiplier(cand, reference_date)
@@ -179,7 +261,10 @@ def compute_final_score(cand: dict, reference_date: date) -> float:
 
     # Soft honeypot score compound penalty (for non-flagged suspicious profiles)
     honeypot_score = cand.get("honeypot_score", 0.0)
-    honeypot_mult  = 1.0 - (honeypot_score * W["behavioral.honeypot_score_penalty_factor"])
+    honeypot_mult  = max(
+        0.0,
+        1.0 - (honeypot_score * W["behavioral.honeypot_score_penalty_factor"]),
+    )
     combined_mult *= honeypot_mult
 
     # Additive bonuses

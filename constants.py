@@ -51,6 +51,7 @@ RUN_METADATA_JSON         = "artifacts/run_metadata.json"
 
 # Phase 1d — RRF retrieval
 RETRIEVAL_SCORES_PARQUET  = "artifacts/retrieval_scores.parquet"
+BASE_RETRIEVAL_SCORES_PARQUET = "artifacts/retrieval_scores_base.parquet"
 
 # Phase 1c — Feature extraction (Bucket A/B/C, top 5000)
 CANDIDATE_FEATURES_PARQUET = "artifacts/candidate_features.parquet"
@@ -74,15 +75,16 @@ BGE_RERANKER_MODEL_ID  = "BAAI/bge-reranker-v2-m3"
 # These control algorithm topology, not score values. Do not move to weights.yaml.
 # ---------------------------------------------------------------------------
 
-# Maximum candidates precomputed in Phase 1d (RRF pool)
-RRF_PRECOMPUTE_TOPK = 5000
+# Maximum candidates precomputed in Phase 1d (RRF + high-recall rescue pool)
+RRF_PRECOMPUTE_TOPK = 15000
+
+# Exact/regex all-corpus rescue lane. This is CPU-cheap and can be recomputed
+# with --skip-embed because it only needs candidates.jsonl plus existing RRF.
+EXACT_RECALL_TOPK = 10000
 
 # Batch sizes for BGE-M3 encoding (GPU vs CPU)
 BATCH_SIZE_GPU = 512
 BATCH_SIZE_CPU = 32
-
-# Safety buffer for honeypot tech-release date check (months)
-RELEASE_BUFFER_MONTHS = 12
 
 # Ghost pre-filter: 4-condition AND gate (ALL must be true to mark ghost)
 GHOST_DAYS_INACTIVE_THRESHOLD = 365
@@ -97,20 +99,39 @@ YOE_IMPOSSIBLE_BUFFER_MONTHS = 6                 # Rule I-4
 # Skill duration soft-flag buffer above chrono timeline (Phase 1f soft signals)
 SKILL_DURATION_SOFT_FLAG_BUFFER_MONTHS = 48
 
+# Target-skill contradiction buffer above claimed YoE. Skill durations can be
+# overlapping/noisy, so this is a soft ranking signal, not an impossible flag.
+TARGET_SKILL_DURATION_BUFFER_MONTHS = 6
+TARGET_SKILL_DURATION_TERMS = (
+    "retrieval",
+    "ranking",
+    "recommender",
+    "recommendation",
+    "search",
+    "vector",
+    "embedding",
+    "semantic search",
+    "bm25",
+    "faiss",
+    "pinecone",
+    "qdrant",
+    "milvus",
+    "weaviate",
+    "pgvector",
+    "opensearch",
+    "elasticsearch",
+    "learning to rank",
+    "ltr",
+    "rerank",
+    "cross encoder",
+    "cross-encoder",
+)
+
 # Cross-encoder: how many candidates to score offline
-CE_PRECOMPUTE_TOPK = 5000  # Score all top-5000; runtime will slice top 500
+CE_PRECOMPUTE_TOPK = 15000  # Score widened retrieval pool when GPU is available
 
 # Honeypot score threshold for suspicious_flag
 HONEYPOT_SUSPICIOUS_THRESHOLD = 0.70
-
-# Known impossible technology release dates: {tech: (year, month)}
-IMPOSSIBLE_TECH_RELEASES = {
-    "qdrant":     (2021, 6),
-    "milvus":     (2019, 10),
-    "pinecone":   (2019, 1),
-    "langchain":  (2022, 10),
-    "llamaindex": (2022, 11),
-}
 
 # Consulting firms — used in product_ratio computation (Phase 1f soft signals + Phase 3)
 CONSULTING_FIRMS = frozenset({

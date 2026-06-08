@@ -96,12 +96,14 @@ def main():
     # 2. Phase 4a: Core Scoring (Vectorized)
     df = score_candidates_vectorized(df)
     
-    # 3. Slice to Top 500
-    df = df.sort("core_score", descending=True).head(500)
-    print(f"Sliced to top {len(df)} candidates by core score.")
-    
-    # 4. Phase 4b: Cross-Encoder Merge
+    # 3. Phase 4b: Cross-Encoder Merge
+    # Merge before the top-500 slice so CE can rescue semantically strong
+    # candidates that are slightly underweighted by handcrafted regex features.
     df = merge_cross_encoder_scores(df)
+
+    # 4. Slice to Top 500 by blended Phase 4 score
+    df = df.sort("final_phase4_score", descending=True).head(500)
+    print(f"Sliced to top {len(df)} candidates by blended Phase 4 score.")
     
     # We now move to python dictionaries for Phase 5 & 6 row-level operations
     # since these are complex heuristic formulas and we only have 500 records.

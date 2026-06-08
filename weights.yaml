@@ -56,8 +56,8 @@ scoring:
   assessment_bonus_value:     0.5   # fractional bonus added to bucket A evidence value
 
   # Cross-Encoder merge at Phase 4
-  cross_encoder_weight:   0.20   # CE score contribution (0.0 to disable)
-  handcrafted_weight:     0.80   # Handcrafted core score contribution (must + CE = 1.0)
+  cross_encoder_weight:   0.35   # CE score contribution (0.0 to disable)
+  handcrafted_weight:     0.65   # Handcrafted core score contribution (must + CE = 1.0)
 
 # ---------------------------------------------------------------------------
 # Phase 4 — Career quality multipliers (applied inside career_quality_raw)
@@ -79,10 +79,34 @@ soft_penalties:
   title_velocity_mult:  0.80  # Avg tenure < 18mo across 3+ roles
   code_stopped_mult:    0.75  # Architect/VP/Director with YoE > 8
   langchain_only_mult:  0.45  # LangChain-only AI under 12 months, no pre-LLM ML
-  remote_pref_mult:     0.85  # Prefers remote for a hybrid role
+  remote_pref_mult:     0.93  # Prefers remote for a flexible-hybrid role
+  yoe_below_floor_mult: 0.90  # 4.0-4.99 years: considered, but higher bar
+  yoe_far_below_floor_mult: 0.75  # <4 years: substantially below JD band
   research_only_mult:   0.40  # No engineering titles
   wrong_domain_mult:    0.50  # CV/speech/robotics without NLP/IR
   closed_source_mult:   0.80  # 5+ years no external validation
+  target_skill_duration_one_mult:   0.97  # One target skill duration exceeds claimed YoE + buffer
+  target_skill_duration_multi_mult: 0.92  # Multiple noisy target-skill duration contradictions
+  adjacent_domain_weak_ir_mult:     0.55  # CV/speech/robotics title with weak retrieval/vector/eval evidence
+  current_consulting_weak_ir_mult:  0.60  # Current consulting firm plus weak target/product evidence
+  long_notice_weak_eval_mult:       0.75  # >90 day notice and no evaluation evidence
+  weak_ir_retrieval_threshold:      2.0   # Below project-level retrieval evidence
+  weak_ir_vector_threshold:         2.0   # Below project-level vector/hybrid evidence
+  weak_ir_eval_threshold:           1.0   # No meaningful ranking-eval evidence
+  current_consulting_product_builder_threshold: 0.55
+  yoe_floor_years:                  5.0   # JD preferred lower band
+  yoe_far_below_floor_years:        4.0   # Substantially below senior band
+  remote_work_mode_aliases:
+    - remote
+    - wfh
+    - work from home
+  adjacent_domain_title_terms:
+    - computer vision
+    - vision engineer
+    - cv engineer
+    - object detection
+    - robotics
+    - speech recognition
 
 # ---------------------------------------------------------------------------
 # Phase 5 — Behavioral reachability multipliers
@@ -99,8 +123,8 @@ behavioral:
   not_open_mult: 0.85          # Candidate is not flagged as open to work
 
   # Recruiter response rate
-  low_response_rate_threshold: 0.10  # < this → penalty
-  low_response_mult: 0.90
+  low_response_rate_threshold: 0.30  # < this → penalty
+  low_response_mult: 0.65
 
   # Notice period modifiers
   notice_ideal_days:    30     # <= this → no penalty
@@ -131,7 +155,7 @@ behavioral:
   honeypot_score_penalty_factor: 0.40  # honeypot_mult = 1.0 - (score * this)
 
   # Additive bonuses
-  ninety_day_bonus_max: 8.0   # ninety_day_alignment (0-1) * this
+  ninety_day_bonus_max: 5.0   # ninety_day_alignment (0-1) * this
 
   # Floor for penalty_mult below which score is forced to 0.0
   penalty_floor_zero: 0.20
@@ -157,14 +181,26 @@ social_proof:
   fast_response_threshold:   4.0   # avg_response_time_hours <= this
   fast_response_rate_min:    0.60  # also needs recruiter_response_rate >= this
   fast_response_boost:       1.0
-  social_proof_max:         12.0   # Total cap on additive boosts
+  social_proof_max:          5.0   # Total cap on additive boosts; tie-breaker, not tier-changer
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Feature extraction normalizers
+# ---------------------------------------------------------------------------
+features:
+  deploy_signal_hit_cap: 5.0      # Unique production/scale hits needed for full deploy_signal
+  depth_signal_role_cap: 2.0      # Relevant roles needed for full depth_signal
+  writing_strong_desc_len: 150
+  writing_ok_desc_len: 60
+  writing_strong_mult: 1.00
+  writing_ok_mult: 0.95
+  writing_weak_mult: 0.90
 
 # ---------------------------------------------------------------------------
 # Phase 2 — RRF retrieval configuration
 # ---------------------------------------------------------------------------
 retrieval:
   rrf_k: 60              # RRF denominator constant (standard = 60)
-  runtime_top_k: 3000    # How many candidates to pass from retrieval to Phase 3/4
+  runtime_top_k: 10000   # How many candidates to pass from widened retrieval to Phase 3/4
 
 # ---------------------------------------------------------------------------
 # Phase 1f — Honeypot soft scoring weights

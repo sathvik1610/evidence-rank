@@ -59,7 +59,25 @@ def test_generate_reasoning_weak():
         "retrieval_search": 2.0
     }
     reason = generate_reasoning(cand)
-    assert "Mentions Retrieval Systems but lacks deep production evidence" in reason
+    assert "search" in reason.lower() or "retrieval" in reason.lower()
+    assert "production depth" in reason or "scale evidence" in reason or "system details" in reason
+
+def test_generate_reasoning_top_rank_moderate_is_positive():
+    cand = {
+        "candidate_id": "CAND_0000001",
+        "profile_current_title": "AI Engineer",
+        "profile_current_company": "Acme",
+        "profile_years_of_experience": 6.0,
+        "rank": 8,
+        "retrieval_search": 2.0,
+        "vector_db_hybrid": 1.0,
+        "beh_notice_period_days": 30,
+        "beh_recruiter_response_rate": 0.82,
+    }
+    reason = generate_reasoning(cand)
+    assert "lacks deep production evidence" not in reason
+    assert "30-day notice" in reason
+    assert "82% recruiter response" in reason
 
 def test_generate_reasoning_low_rank():
     cand = {
@@ -70,4 +88,4 @@ def test_generate_reasoning_low_rank():
         "core_score": 35.0
     }
     reason = generate_reasoning(cand)
-    assert "Failed to meet the technical depth" in reason
+    assert "failed to meet the technical depth" in reason

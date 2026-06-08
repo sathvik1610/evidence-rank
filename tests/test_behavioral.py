@@ -5,7 +5,9 @@ import pytest
 from src.behavioral import (
     reachability_multiplier, notice_modifier, location_modifier,
     social_proof_boost, seniority_modifier, soft_penalties,
-    has_floor_exempt_penalty, compute_final_score, assign_ranks
+    has_floor_exempt_penalty, compute_final_score, assign_ranks,
+    has_adjacent_domain_weak_ir, has_current_consulting_weak_ir,
+    has_long_notice_weak_eval, yoe_floor_modifier,
 )
 from src.weights import W
 
@@ -36,6 +38,13 @@ def test_reachability_multiplier():
         "beh_recruiter_response_rate": 0.90
     }
     assert abs(reachability_multiplier(cand_not_open, ref) - W["behavioral.not_open_mult"]) < 1e-9
+
+    # Missing open_to_work should fail open, not penalize as explicitly unavailable.
+    cand_missing_open_to_work = {
+        "beh_last_active_date": "2026-05-30",
+        "beh_recruiter_response_rate": 0.90
+    }
+    assert reachability_multiplier(cand_missing_open_to_work, ref) == 1.0
 
 def test_notice_modifier():
     # Ideal (<= 30 days usually)
@@ -106,12 +115,84 @@ def test_soft_penalties():
     expected = max(W["soft_penalties.consistency_floor"], expected)
     assert abs(soft_penalties(cand_contra) - expected) < 1e-9
 
+    cand_target_single = {"target_skill_duration_contradiction": 1}
+    assert abs(
+        soft_penalties(cand_target_single)
+        - W["soft_penalties.target_skill_duration_one_mult"]
+    ) < 1e-9
+
+    cand_target_multi = {"target_skill_duration_contradiction": 2}
+    assert abs(
+        soft_penalties(cand_target_multi)
+        - W["soft_penalties.target_skill_duration_multi_mult"]
+    ) < 1e-9
+
+    cand_cv_weak = {
+        "profile_current_title": "Computer Vision Engineer",
+        "retrieval_search": 1.0,
+        "vector_db_hybrid": 1.0,
+        "eval_framework": 0.0,
+    }
+    assert has_adjacent_domain_weak_ir(cand_cv_weak) is True
+    assert abs(
+        soft_penalties(cand_cv_weak)
+        - W["soft_penalties.adjacent_domain_weak_ir_mult"]
+    ) < 1e-9
+
+    cand_cv_strong = {
+        "profile_current_title": "Computer Vision Engineer",
+        "retrieval_search": 2.0,
+        "vector_db_hybrid": 2.0,
+        "eval_framework": 2.0,
+    }
+    assert has_adjacent_domain_weak_ir(cand_cv_strong) is False
+    assert soft_penalties(cand_cv_strong) == 1.0
+
+    cand_consulting_weak = {
+        "profile_current_company": "TCS",
+        "retrieval_search": 1.0,
+        "vector_db_hybrid": 1.0,
+        "eval_framework": 0.0,
+        "product_builder_score": 0.44,
+    }
+    assert has_current_consulting_weak_ir(cand_consulting_weak) is True
+    assert abs(
+        soft_penalties(cand_consulting_weak)
+        - W["soft_penalties.current_consulting_weak_ir_mult"]
+    ) < 1e-9
+
+    cand_long_notice = {
+        "beh_notice_period_days": 120,
+        "eval_framework": 0.0,
+    }
+    assert has_long_notice_weak_eval(cand_long_notice) is True
+    assert abs(
+        soft_penalties(cand_long_notice)
+        - W["soft_penalties.long_notice_weak_eval_mult"]
+    ) < 1e-9
+    assert has_long_notice_weak_eval({
+        "beh_notice_period_days": W["behavioral.notice_moderate_days"],
+        "eval_framework": 0.0,
+    }) is False
+
     # Keyword stuffer
     assert soft_penalties({"keyword_stuffer_flag": True}) < 1.0
+
+def test_yoe_floor_modifier():
+    assert yoe_floor_modifier({"profile_years_of_experience": 5.0}) == 1.0
+    assert yoe_floor_modifier({"profile_years_of_experience": 4.5}) == W["soft_penalties.yoe_below_floor_mult"]
+    assert yoe_floor_modifier({"profile_years_of_experience": 3.8}) == W["soft_penalties.yoe_far_below_floor_mult"]
 
 def test_has_floor_exempt_penalty():
     # consulting_only is floor exempt
     assert has_floor_exempt_penalty({"consulting_only": True}) is True
+    assert has_floor_exempt_penalty({"target_skill_duration_contradiction": 2}) is False
+    assert has_floor_exempt_penalty({
+        "profile_current_title": "Computer Vision Engineer",
+        "retrieval_search": 1.0,
+        "vector_db_hybrid": 1.0,
+        "eval_framework": 0.0,
+    }) is True
     assert has_floor_exempt_penalty({}) is False
 
 def test_compute_final_score():
