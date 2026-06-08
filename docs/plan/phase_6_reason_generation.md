@@ -28,11 +28,13 @@ The explainer ranks candidate strengths using the same feature columns produced 
 The lead sentence is based on the strongest domain:
 
 - score `>= 3.0`: strong evidence, use snippet when available.
-- score `>= 2.0`: profile-text evidence, but not necessarily production-localized.
+- score `>= 2.0`: profile-text evidence, but not necessarily production-localized. For ranks 1-30 this is phrased as positive relevance instead of a negative caveat, so the reasoning tone matches the high rank. For ranks 1-15, a concrete extracted snippet is used when available.
 - score `> 0.0`: skills-list or weaker evidence.
 - score `0.0`: limited direct evidence.
 
-Support sentences mention a secondary capability for highly ranked candidates when the secondary signal is real. Otherwise they fall back to the JD's 90-day milestone framing.
+Support sentences mention a secondary capability for highly ranked candidates when the secondary signal is real. Otherwise they fall back to the JD's 90-day milestone framing. Support phrasing is varied deterministically by candidate id/rank to reduce repeated templates in Stage 4 review.
+
+When available and material, the second sentence includes quantified hiring signals such as `30-day notice` or `82% recruiter response`. Long notice periods and low response rates remain caveats rather than hidden penalties.
 
 Reasons should stay at 1-2 sentences. The first sentence starts with concrete profile facts and the primary evidence domain; the second sentence, when present, adds secondary JD alignment or a concern.
 

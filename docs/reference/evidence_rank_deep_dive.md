@@ -2,6 +2,8 @@
 > **Project:** Redrob Hackathon — Intelligent Candidate Discovery & Ranking Engine  
 > **Version:** 3.3.0 | Source: [plan.md](file:///d:/GitHub/evidence-rank/plan.md) + [variables.md](file:///d:/GitHub/evidence-rank/variables.md)
 
+> **Current-status note:** This deep dive preserves a broader architecture narrative and some historical examples. For current numeric values, pool sizes, behavioral signal coverage, and cross-encoder weights, use `README.md`, `docs/reference/variables.md`, `weights.yaml`, and `constants.py`.
+
 ---
 
 # 1. One Minute Explanation
@@ -450,7 +452,7 @@ Ranked results in <10 seconds (HuggingFace Spaces demo)
 7. LangChain-only AI (<12 months, no pre-LLM background) → soft penalty ×0.45
 8. Code-stopped (VP/Architect + YoE > 8) → soft penalty ×0.75
 9. Title-chaser (avg tenure <18mo across 3+ jobs) → soft penalty ×0.80
-10. Remote-only preference (role is hybrid) → soft penalty ×0.85
+10. Remote-only preference (role is flexible-hybrid) → soft penalty ×0.93
 11. Closed-source only (5+ years, no GitHub/papers/talks) → soft penalty ×0.80
 12. Consistency Score penalty (expert claims contradicted by career) → multiplier ×0.30–1.00
 
@@ -458,9 +460,9 @@ Ranked results in <10 seconds (HuggingFace Spaces demo)
 13. Logistical group (notice × location × seniority × writing) floor = 0.75
 14. Combined multiplier chain (availability × penalties × logistical) floor = 0.25
 
-**Availability rules:**
-15. Active ≤30d + response ≥70% + open to work → ×1.15
-16. Active >180d or response <15% → ×0.70 (softened from 0.50 — competition scores fit, not hireability)
+**Reachability rules:**
+15. Active and responsive candidates receive no reachability penalty.
+16. Inactive, explicitly not-open, or low-response candidates are down-weighted through `weights.yaml` multipliers.
 
 **Seniority rules:**
 17. 5–9 years YoE = sweet spot (×1.00)
@@ -808,11 +810,11 @@ logistical_mult = max(1.00, 0.75) = 1.00   ← floor not needed
 
 **Soft Penalties:** ×1.00 (no flags triggered)  
 **Consistency:** ×1.00 (consistency_score = 1.0)  
-**Availability:** ×1.15 (active 15 days ago, 82% response rate, open to work)
+**Reachability:** ×1.00 (active 15 days ago, 82% response rate, open to work)
 
 ```
-combined_mult = 1.15 × 1.00 × 1.00 = 1.15
-combined_mult = max(1.15, 0.25) = 1.15   ← floor not needed
+combined_mult = 1.00 × 1.00 × 1.00 = 1.00
+combined_mult = max(1.00, 0.25) = 1.00   ← floor not needed
 ```
 
 **Additive bonuses:**

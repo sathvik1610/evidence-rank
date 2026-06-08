@@ -93,7 +93,7 @@ candidate_sparse_csr = scipy.sparse.csr_matrix(
     (vals, (rows, cols)),
     shape=(len(all_sparse_dicts), vocab_size)
 )
-scipy.sparse.save_npz("artifacts/candidate_sparse.npz", candidate_sparse_csr)
+scipy.sparse.save_npz("artifacts/candidate_sparse_matrix.npz", candidate_sparse_csr)
 print(f"Sparse CSR saved: shape={candidate_sparse_csr.shape}, nnz={candidate_sparse_csr.nnz:,}")
 # Expected memory: ~80-100 MB for 100K candidates at ~100 avg non-zero tokens
 # (vs 400 MB for dense, vs 25-100 GB for ColBERT)
@@ -125,16 +125,6 @@ This is a **completely separate pass** from the embedding pipeline. It reads raw
 These are structural contradictions with no legitimate explanation:
 
 ```python
-IMPOSSIBLE_TECH_RELEASES = {
-    # Tool: (release_year, release_month) — only tools with precise, well-known dates
-    "qdrant":     (2021, 6),
-    "milvus":     (2019, 10),
-    "pinecone":   (2019, 1),
-    "langchain":  (2022, 10),
-    "llamaindex": (2022, 11),
-}
-RELEASE_BUFFER_MONTHS = 12  # Safety margin against false positives
-
 def check_impossible_flag(candidate) -> bool:
     career  = candidate.get("career_history", [])
     skills  = candidate.get("skills", [])
@@ -153,16 +143,10 @@ def check_impossible_flag(candidate) -> bool:
         if role.get("duration_months", 0) < 0:
             return True
 
-    # Rule I-3: Technology claimed before it existed (+RELEASE_BUFFER_MONTHS safety)
-    for skill in skills:
-        name_lower = skill["name"].lower()
-        for tech, (rel_year, rel_month) in IMPOSSIBLE_TECH_RELEASES.items():
-            if tech in name_lower:
-                release_date = date(rel_year, rel_month, 1)
-                months_since_release = (date.today() - release_date).days / 30.436875
-                claimed_months = skill.get("duration_months", 0)
-                if claimed_months > months_since_release + RELEASE_BUFFER_MONTHS:
-                    return True
+    # Rule I-3 reserved:
+    # Do not hard-kill from external technology release dates. The ranking
+    # should be reproducible from the released JSONL; target skill duration
+    # anomalies are retained as soft trust penalties instead.
 
     # Rule I-4: Total YoE mathematically impossible given earliest career start_date
     start_dates = [parse_date(r.get("start_date")) for r in career]
@@ -179,6 +163,12 @@ def check_impossible_flag(candidate) -> bool:
     # contradiction penalties later. Only absurd overshoots are hard kills.
     yoe_months = profile.get("years_of_experience", 0) * 12
     if any((s.get("duration_months") or 0) > yoe_months + 48 for s in skills):
+        return True
+
+    # Rule I-6: long descriptions copied verbatim across 3+ employers.
+    # This catches synthetic profiles that repeat the same project narrative
+    # at unrelated companies.
+    if repeated_long_role_descriptions_across_companies(candidate):
         return True
 
     return False
@@ -341,6 +331,8 @@ Save `artifacts/candidate_flags.parquet` with one row per candidate:
 | wrong_domain | bool | CV/speech/robotics, no NLP/IR |
 | contradiction_skill_duration | int | Count of skills > career timeline + 48mo |
 | contradiction_assessment | int | Count of expert skills with test score < 40 |
+| target_skill_duration_contradiction | int | Count of expert/advanced target-domain skills > claimed YoE + 6mo |
+| max_target_skill_overclaim_months | float | Largest target-domain duration overclaim in months |
 
 > [!IMPORTANT]
 > `suspicious_flag` is computed during Phase 1f and stored explicitly in the parquet. It is **not** recomputed at runtime from `honeypot_score` — the parquet is the single source of truth. `impossible_flag` and `suspicious_flag` both result in `final_score *= 0.01` (not 0.0). Absolute zero is not used because a legitimate candidate triggering a false positive on the tech timeline check must still be recoverable by manual inspection.

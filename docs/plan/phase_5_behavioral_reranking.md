@@ -42,6 +42,7 @@ The group is floor-capped through `behavioral.logistical_floor` in `weights.yaml
 `soft_penalties()` applies:
 
 - contradiction consistency penalty
+- target-skill duration contradiction penalty
 - title velocity
 - code-stopped risk
 - LangChain-only risk
@@ -50,8 +51,20 @@ The group is floor-capped through `behavioral.logistical_floor` in `weights.yaml
 - research-only
 - wrong-domain
 - closed-source/no external validation
+- weak adjacent-domain title with weak retrieval/vector/evaluation evidence
+- current consulting firm with weak target/product evidence
+- below-5-year YoE soft penalty
+- >90-day notice period when evaluation evidence is absent
 
 Generic penalty values live in `weights.yaml`. JD-specific penalty values that are explicitly represented as YAML multipliers should come from `metadata/JD_contract.yaml`.
+
+The weak-IR thresholds, current-consulting product-builder threshold, adjacent-domain title terms, remote-work aliases, below-band YoE cutoffs, and long-notice cutoff are all tunable in `weights.yaml`; they are not hardcoded in `src/behavioral.py`.
+
+Target-skill duration contradictions are intentionally narrower than generic skill-duration noise. Phase 1f only counts expert/advanced claims for retrieval, ranking, recommendation, search, vector DB, or reranking terms that exceed claimed YoE plus the configured buffer. These remain light soft penalties because skill-duration metadata is noisy and overlapping. Hard impossible flags rely on contradictions visible in the candidate JSONL, such as copied role histories.
+
+Candidates below 5 years are not hard-filtered, because the JD explicitly says the 5-9 year range is a preference. They do receive a soft Phase 5 penalty so top ranks remain biased toward the author's intended senior IC profile unless the technical evidence is unusually strong.
+
+Adjacent-domain and current-consulting penalties are also evidence-gated. They do not hard-filter a candidate merely for having a Computer Vision title or a current TCS/Infosys/Wipro-style employer. They apply only when the same candidate lacks project-level retrieval, vector, and evaluation evidence, or has weak product-builder evidence.
 
 ### 9.6 Floor Exemptions
 
@@ -64,6 +77,8 @@ The combined multiplier floor is useful for ordinary soft signals, but it must n
 - wrong-domain CV/speech/robotics profiles without NLP/IR escape evidence
 - LangChain-wrapper-only profiles
 - keyword-stuffed profiles
+- weak adjacent-domain profiles
+- weak current-consulting profiles
 
 The exemption list is read from `metadata.JD_contract.yaml`.
 
@@ -81,6 +96,8 @@ The exemption list is read from `metadata.JD_contract.yaml`.
 - fast response behavior
 
 These boosts are additive and capped so they cannot replace technical fit.
+
+The cap is intentionally low (`social_proof_max = 5.0`) because social proof is a tie-breaker. It should help distinguish two technically similar candidates, not move a weaker technical profile into the top 10.
 
 ### 9.8 Final Score
 

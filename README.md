@@ -1,22 +1,27 @@
 # Evidence Rank — Team BuriBuri
 
 > **Redrob Hackathon** · Intelligent Candidate Discovery & Ranking Challenge  
-> Rank the top 100 ML Engineer candidates from a 100,000-candidate pool — in under 5 seconds on CPU.
+# Evidence Rank — Team BuriBuri
+
+> **Redrob Hackathon** · Intelligent Candidate Discovery & Ranking Challenge  
+> Rank the top 100 Senior AI Engineer candidates from a 100,000-candidate pool — in under 5 seconds on CPU.
 
 ---
 
 ## Quick Start
 
 ### 1. Setup
-* Place the `candidates.jsonl` file directly in the repository root directory (i.e., `./candidates.jsonl`).
-* The precomputed artifacts required for CPU ranking are included in the `artifacts/` folder of this repository.
+* **Download the dataset:** You must provide the 100K candidate dataset. Download or copy your `candidates.jsonl` file and place it directly in the root directory of this repository (`./candidates.jsonl`).
+* **Artifacts:** The heavy pre-computed artifacts (FAISS indexes, sparse matrices, cross-encoder scores) required to run the CPU ranker in under 5 minutes are already included in the `artifacts/` folder via Git LFS. You do not need to re-run the heavy GPU embeddings.
 
-### 2. Run
+### 2. Run (Stage 3 Validator Command)
+Run this single exact command to produce the final submission CSV from the candidates file within the 5-minute, 16GB, CPU-only constraint:
+
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the CPU ranker (completes in ~2.3 seconds)
+# Run the CPU ranker
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 
 # Validate format compliance
@@ -29,7 +34,7 @@ The unit test suite validates scoring formulas, re-ranking multipliers, location
 pytest -v
 ```
 
-> **Runtime:** ~2.3 sec · **RAM:** < 1 GB · **Compute:** CPU only · **Network:** None
+> **Runtime:** ~2.2 sec · **RAM:** < 1 GB · **Compute:** CPU only · **Network:** None
 
 ---
 
@@ -57,40 +62,44 @@ All 100,000 candidates are scanned for impossible profiles before any ranking:
 - Timeline contradictions (e.g., 8 years at a 3-year-old company)
 - Skill impossibilities (expert in 10 skills with 0 years of use)
 - Ghost profiles (no recent activity, no verifiable signals)
+- Target-domain duration contradictions, such as expert Pinecone/search/retrieval claims that exceed claimed YoE plus a small buffer
 
 Flagged candidates receive a score penalty that naturally pushes them below rank 100.
 
-**Phase 1d — RRF Retrieval**  
-Five signals are fused using Reciprocal Rank Fusion (RRF) to produce a shortlist of the top **5,000** candidates:
+**Phase 1d — High-Recall RRF Retrieval**
+Six signals are fused using Reciprocal Rank Fusion (RRF) to produce a wider shortlist of the top **15,000** candidates:
 1. BGE-M3 dense cosine similarity
 2. BGE-M3 sparse lexical similarity
 3. BM25 keyword match
 4. Title-query match
 5. Skill-query match
+6. Field-aware exact/regex recall over titles, skills, and career descriptions
+
+The exact recall lane is CPU-cheap and intentionally conservative: career-history evidence is weighted more than skills-only claims, and candidates still need at least one retrieval/ranking/recommendation/evaluation signal.
 
 **Phase 1c — Feature Extraction**  
-The top 5,000 candidates have 70+ features extracted by a handcrafted regex engine across three buckets:
+The widened retrieval pool has 70+ features extracted by a handcrafted regex engine across three buckets:
 - **Bucket A (Must-Haves):** Semantic search, vector DB, retrieval/ranking, NLP/LLM product experience
 - **Bucket B (Nice-to-Haves):** MLOps, recommendations, evaluation pipelines, knowledge graphs
 - **Bucket C (Career Quality):** Product company ratio, title progression, seniority, recency
 
 **Phase 1e — Cross-Encoder Scoring**  
-`BAAI/bge-reranker-v2-m3` scores all top-5,000 candidate-JD pairs offline. The score is stored and merged at runtime, eliminating any GPU requirement at inference time.
+`BAAI/bge-reranker-v2-m3` scores the configured top retrieval candidates offline. The score is stored and merged at runtime, eliminating any GPU requirement at inference time. Candidates without a CE score fall back to their handcrafted core score.
 
 ---
 
 ### Online Ranking — `rank.py` (~2.3 sec on CPU)
 
 **Phase 4 — Core Scoring**  
-A vectorized Polars formula merges all precomputed features into a 0–100 `core_score`, then blends in the cross-encoder score at an 80/20 ratio. Applied to the top 500 candidates by retrieval score.
+A vectorized Polars formula merges all precomputed features into a 0–100 `core_score`, blends in the cross-encoder score at a 65/35 handcrafted/CE ratio, then slices to the top 500 by blended Phase 4 score. This gives the semantic reranker enough influence to improve the NDCG-heavy top 10 while retaining JD-specific handcrafted evidence.
 
 **Phase 5 — Behavioral Modifiers**  
-Strict modifiers applied to the top 500, using 18 of 23 Redrob behavioral signals:
+Strict modifiers applied to the top 500, using 16 of 23 Redrob behavioral signals:
 
 | Signal | How it's used |
 |--------|--------------|
-| `notice_period_days` | Hard penalty for 90+ day notice |
-| `open_to_work_flag` | Availability boost |
+| `notice_period_days` | Notice modifier; extra risk for >90-day notice with weak eval evidence |
+| `open_to_work_flag` | Availability penalty only when explicitly false |
 | `recruiter_response_rate` | Responsiveness multiplier |
 | `avg_response_time_hours` | Responsiveness multiplier |
 | `interview_completion_rate` | Hiring intent signal |
@@ -104,11 +113,11 @@ Strict modifiers applied to the top 500, using 18 of 23 Redrob behavioral signal
 | `applications_submitted_30d` | Active job-seeking signal |
 | `preferred_work_mode` | Location / remote fit |
 | `willing_to_relocate` | Location / remote fit |
-| `verified_email` | Profile authenticity |
-| `verified_phone` | Profile authenticity |
 | `linkedin_connected` | Profile authenticity |
 
-*Unused signals (5/23): `signup_date`, `profile_views_received_30d`, `connection_count`, `expected_salary_range_inr_lpa`, `search_appearance_30d`*
+Phase 5 also applies Phase 1f/1c trust penalties. Target-skill duration contradictions are soft trust penalties because skill-duration metadata is noisy; hard impossible flags rely on contradictions visible in the candidate JSONL, such as copied role histories.
+
+*Unused signals (7/23): `signup_date`, `profile_views_received_30d`, `connection_count`, `expected_salary_range_inr_lpa`, `search_appearance_30d`, `verified_email`, `verified_phone`*
 
 **Phase 6 — Reasoning**  
 For the final top 100, a 1–2 sentence reasoning string is assembled from actual extracted values in the candidate's profile. No LLM is called. Every claim corresponds to a real, verified field from the data.
@@ -138,8 +147,10 @@ The submission is scored against a hidden ground truth using:
 |-------------|--------------|
 | `weights.yaml` only | `rank.py` only |
 | `src/scorer.py`, `src/behavioral.py`, `src/explainer.py` | `rank.py` only |
-| `src/features.py` or honeypot logic | `preprocess.py --skip-embed` → `rank.py` |
-| `metadata/JD_contract.yaml` (signal terms) | `preprocess.py --skip-embed` → `rank.py` |
+| `src/features.py` or honeypot/contradiction logic | `preprocess.py --skip-embed` → `rank.py` |
+| Exact/regex recall-lane changes in `preprocess.py` | `preprocess.py --skip-embed` → `rank.py` |
+| `metadata/JD_contract.yaml` (signal/extraction terms) | `preprocess.py --skip-embed` → `rank.py` |
+| Need CE scores for widened retrieval pool | `preprocess.py --only-cross-encoder' on GPU → `rank.py` |
 | `metadata/JD_contract.yaml` (retrieval/query terms) | Full `preprocess.py` (GPU required) |
 | Candidate data or embedding model | Full `preprocess.py` (GPU required) |
 
@@ -150,30 +161,22 @@ python preprocess.py --candidates ./candidates.jsonl --skip-embed
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 ```
 
----
+Use this after recall-lane, feature, honeypot, or scoring-contract changes. It reuses existing BGE/FAISS/BM25 artifacts, widens `retrieval_scores.parquet` with the exact recall lane, then regenerates `candidate_features.parquet`.
 
-## Pre-computation (GPU Required — Run Once)
+The first partial rerun also creates `artifacts/retrieval_scores_base.parquet` so repeated recall-lane experiments start from the same dense/sparse/BM25 base instead of compounding old rescue outputs.
 
-The embedding step requires a GPU environment (Google Colab T4 or equivalent).
+Run the full GPU preprocessing again only when JD embedding query text, the embedding model, candidate data, or dense/sparse/BM25 index construction changes.
+
+### Cross-Encoder Refresh Only (GPU, No Re-Embedding)
+
+After a widened retrieval/features run, refresh CE scores for the wider pool without rebuilding embeddings:
 
 ```bash
-# Install all dependencies
-pip install -r requirements.txt
-
-# Run the full offline pipeline
-python preprocess.py --candidates ./candidates.jsonl
-
-# Smoke test with 50 sample candidates first (recommended)
-python preprocess.py --sample
+python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 ```
 
-Outputs are saved to the `artifacts/` folder. Once generated, `rank.py` runs entirely on CPU.
-
----
-
-## Project Structure
-
-```
+Use this on Colab if you want CE coverage for rescued candidates. It only rewrites `artifacts/cross_encoder_scores.parquet`.
 evidence-rank/
 ├── preprocess.py              # Offline GPU pipeline (Phases 0, 1, 1f, 1d, 1c, 1e)
 ├── rank.py                    # Fast CPU ranker (Phases 4, 5, 6)
@@ -196,7 +199,8 @@ evidence-rank/
 │
 └── artifacts/                 # Generated by preprocess.py
     ├── faiss_index.bin
-    ├── candidate_sparse.npz
+    ├── candidate_sparse_matrix.npz
+    ├── candidate_texts.pkl
     ├── bm25_index.pkl
     ├── retrieval_scores.parquet
     ├── candidate_features.parquet
@@ -241,8 +245,55 @@ The sandbox runs Phases 1f + 1c + 4 + 5 + 6 using pure heuristics. Dense retriev
 - [x] `rank.py` runs in 2.3 seconds (well under 5-minute limit)
 - [x] No GPU during ranking
 - [x] No external API calls during ranking
-- [x] 18/23 Redrob behavioral signals used
+- [x] 16/23 Redrob behavioral signals used
 - [x] Honeypot detection implemented (Phase 1f)
 - [x] Reasoning is specific, non-templated, hallucination-free
 - [x] `submission_metadata.yaml` present at repo root
 - [x] Working sandbox provided
+
+---
+
+## Final Run Commands
+
+### Colab Setup
+
+Use Python 3.10/3.11 with a T4 GPU runtime. **You must downgrade NumPy before installing requirements.** 
+Google Colab pre-installs NumPy 2.x, which has major C-API changes. If you skip this step, `faiss-cpu` and `scipy` will crash with the error: *`A module that was compiled using NumPy 1.x cannot be run in NumPy 2.x`*.
+
+Run these exact commands in order:
+
+```bash
+pip uninstall -y numpy
+pip install "numpy==1.26.4"
+pip install -r requirements.txt
+```
+
+### Full GPU Preprocess
+
+Run this only when candidate data, embedding model, JD retrieval query text, or dense/sparse/BM25 index construction changed.
+
+```bash
+python preprocess.py --candidates ./candidates.jsonl
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
+
+### Lightweight Local Preprocess
+
+Run this after feature, honeypot, contradiction, exact-recall, or scoring-contract changes. This does not rebuild BGE embeddings.
+
+```bash
+python preprocess.py --candidates ./candidates.jsonl --skip-embed
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
+
+### Cross-Encoder Refresh Only
+
+Run this on Colab after widening or changing the retrieval candidate pool. It only rewrites `artifacts/cross_encoder_scores.parquet`.
+
+```bash
+python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
