@@ -22,6 +22,32 @@ from src.scorer import score_candidates_vectorized
 from src.reranker import merge_cross_encoder_scores
 from src.behavioral import compute_final_score, assign_ranks
 from src.explainer import generate_reasoning, get_largest_concern
+from src.weights import W
+
+
+def load_candidate_ids(path: str) -> set[str]:
+    """
+    Read only candidate_id values from a JSON array or JSONL file.
+    This guards against stale artifacts being ranked for the wrong input file.
+    """
+    ids: set[str] = set()
+    with open(path, "r", encoding="utf-8") as f:
+        first = f.read(1)
+        f.seek(0)
+        if first == "[":
+            data = json.load(f)
+            for item in data:
+                if isinstance(item, dict) and item.get("candidate_id"):
+                    ids.add(str(item["candidate_id"]))
+        else:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                item = json.loads(line)
+                if isinstance(item, dict) and item.get("candidate_id"):
+                    ids.add(str(item["candidate_id"]))
+    return ids
 
 def main():
     start_time = time.time()
@@ -40,8 +66,32 @@ def main():
         print("Run preprocess.py first.")
         sys.exit(1)
         
+    candidate_ids = load_candidate_ids(args.candidates)
+    if not candidate_ids:
+        print(f"Error: no candidate_id values found in {args.candidates}.")
+        sys.exit(1)
+
     df = pl.read_parquet(constants.CANDIDATE_FEATURES_PARQUET)
-    print(f"Loaded {len(df)} candidates from precomputed feature pool.")
+    before_filter = len(df)
+    df = df.filter(pl.col("candidate_id").is_in(candidate_ids))
+    print(f"Loaded {len(df)} candidates from precomputed feature pool after filtering {before_filter} artifact rows to the input file.")
+    if len(df) == 0:
+        print("Error: input candidate IDs do not overlap with precomputed features. Re-run preprocess.py for this candidate file.")
+        sys.exit(1)
+
+    # Phase 2: if RRF retrieval scores are available, honor the runtime retrieval
+    # cutoff before core scoring. Sample --skip-embed runs do not create this file,
+    # so they correctly exercise all sample candidates.
+    if os.path.exists(constants.RETRIEVAL_SCORES_PARQUET):
+        retrieval_df = pl.read_parquet(constants.RETRIEVAL_SCORES_PARQUET)
+        runtime_top_k = int(W.get("retrieval.runtime_top_k", constants.RUNTIME_RETRIEVAL_TOPK))
+        df = (
+            df.join(retrieval_df, on="candidate_id", how="left")
+              .with_columns(pl.col("rrf_score").fill_null(0.0))
+              .sort("rrf_score", descending=True)
+              .head(runtime_top_k)
+        )
+        print(f"Applied Phase 2 RRF cutoff: top {len(df)} by retrieval score.")
 
     # 2. Phase 4a: Core Scoring (Vectorized)
     df = score_candidates_vectorized(df)
@@ -81,11 +131,12 @@ def main():
     # Phase 5b: Rank Assignment
     candidates = assign_ranks(candidates)
     
-    # Drop candidates with 0.0 final_score (ghosts / fully penalized)
-    # The hackathon expects Top 100 in the CSV. We'll generate reasons for all >0 
-    # but only output the top 100.
-    valid_cands = [c for c in candidates if c["final_score"] > 0.0]
-    top_100 = valid_cands[:100]
+    # Official submissions must contain exactly 100 rows. For sample/sandbox
+    # inputs with fewer than 100 candidates, output the available ranked rows.
+    if len(candidate_ids) >= 100:
+        top_100 = candidates[:100]
+    else:
+        top_100 = candidates
     
     print(f"Running Phase 6 (Reason Generation) for Top {len(top_100)}...")
     debug_records = []

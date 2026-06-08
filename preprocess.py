@@ -14,6 +14,7 @@ import sys
 import json
 import pickle
 import argparse
+import re
 from datetime import date, datetime
 import numpy as np
 import pandas as pd
@@ -27,6 +28,7 @@ warnings.filterwarnings("ignore")
 import constants
 from src.features import extract_features, compute_product_ratio, _build_career_text
 from src.weights import W
+from src.jd_intelligence import build_feature_contract, build_jd_intelligence
 
 def get_embedding_model():
     import torch
@@ -79,120 +81,44 @@ def build_profile_text(candidate: dict) -> str:
 
 def normalize_text(text: str) -> str:
     """Used for BM25 to ensure tokenization alignment."""
-    # simple lowercasing and splitting for BM25
-    return text.lower()
+    text = text.lower()
+    text = re.sub(r"[/\\_-]+", " ", text)
+    text = re.sub(r"[^a-z0-9@.+#]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 # ---------------------------------------------------------------------------
 # Phase 0: JD Intelligence
 # ---------------------------------------------------------------------------
 
-JD_CONFIG = {
-    "must_have": [
-        "production embeddings retrieval",
-        "vector database hybrid search",
-        "ranking system evaluation NDCG MRR MAP",
-        "Python production code quality"
-    ],
-    "nice_to_have": [
-        "LLM fine-tuning LoRA QLoRA",
-        "learning to rank XGBoost LambdaMART",
-        "HR-tech recruiting marketplace",
-        "distributed inference optimization"
-    ],
-    "hard_disqualifiers": [
-        "pure research no production",
-        "consulting only no product company",
-        "computer vision speech robotics no NLP",
-        "LangChain only no pre-LLM experience",
-        "no code written 18 months architecture only"
-    ],
-    "soft_negatives": [
-        "title chaser switching every 1.5 years",
-        "framework demo LangChain tutorial",
-        "closed source only no external validation"
-    ],
-    "location_prefs": ["pune", "noida", "hyderabad", "mumbai", "delhi", "ncr"],
-    "behavior_prefs": {
-        "notice_period_days_max": 30,
-        "open_to_work": True,
-        "min_recruiter_response_rate": 0.50
-    }
-}
-
-JD_KEYWORDS = [
-    "embeddings", "FAISS", "Pinecone", "Weaviate", "Qdrant", "Milvus",
-    "sentence-transformers", "BGE", "E5", "NDCG", "MRR", "MAP",
-    "A/B test", "A/B testing", "vector search", "hybrid retrieval",
-    "hybrid search", "BM25", "ranking", "reranking", "learning to rank",
-    "LTR", "dense retrieval", "sparse retrieval", "retrieval system",
-    "recommendation system", "search ranking", "relevance", "inverted index",
-    "approximate nearest neighbor", "ANN", "evaluation framework",
-    "offline evaluation", "online evaluation", "production ML", "inference",
-    "semantic search", "bi-encoder", "cross-encoder", "reranker",
-    "schema drift", "embedding drift", "golden dataset"
-]
-
-def build_v1_skills_text(config: dict) -> str:
-    must = ". ".join(config.get("must_have", []))
-    nice = ". ".join(config.get("nice_to_have", []))
-    locations = ", ".join(config.get("location_prefs", []))
-    return (
-        f"Senior AI Engineer with expertise in {must}. "
-        f"Beneficial experience includes {nice}. "
-        f"Located in or willing to relocate to {locations}. "
-        "Strong Python engineering skills. Applied ML at product companies. "
-        "Has shipped production ranking, search, or recommendation systems to real users at scale."
-    )
-
-JD_HYDE_RECSYS_TEXT = """
-I am a Senior ML Engineer with 7 years of experience building recommendation and ranking systems
-at product companies. My most recent role involved designing and shipping a two-sided marketplace
-matching engine that ranked 50M job candidates against 200K open roles daily. I implemented
-collaborative filtering with matrix factorization, item and user embeddings, and a learning-to-rank
-stage using XGBoost and LambdaMART. I have deep experience with candidate-job matching pipelines,
-feed ranking systems, personalization engines, and real-time scoring infrastructure. I care deeply
-about offline-online evaluation gap, run regular A/B tests, and measure ranking quality using
-NDCG, MRR, and MAP. I have shipped from zero to production at a startup and understand the full
-stack from embedding training to serving latency to business metric impact.
-"""
-
-JD_HYDE_EVAL_TEXT = """
-I am a Senior AI Engineer specializing in information retrieval systems and evaluation
-methodology with 6 years in applied ML at product companies. I built dense and sparse retrieval
-pipelines using FAISS, Elasticsearch, and Qdrant, and implemented hybrid search combining BM25
-lexical signals with bi-encoder dense vectors. I have designed rigorous evaluation frameworks
-measuring NDCG@10, MRR, MAP, and Precision@K, and I understand the gap between offline benchmark
-metrics and online A/B test outcomes. I have fine-tuned cross-encoders for reranking and trained
-bi-encoders using contrastive learning on domain-specific datasets. I write production Python,
-deploy inference services with low latency, and have worked on retrieval-augmented generation
-pipelines with a strong preference for pre-LLM retrieval engineering foundations.
-"""
-
 def run_phase_0(model):
     print("\n--- Phase 0: JD Intelligence ---")
     os.makedirs(constants.ARTIFACTS_DIR, exist_ok=True)
+
+    jd_intel = build_jd_intelligence(constants.JD_CONTRACT_YAML, constants.JD_TEXT)
     
     with open(constants.JD_CONFIG_JSON, "w") as f:
-        json.dump(JD_CONFIG, f, indent=2)
+        json.dump(jd_intel["config"], f, indent=2)
     with open(constants.JD_KEYWORDS_JSON, "w") as f:
-        json.dump(JD_KEYWORDS, f, indent=2)
+        json.dump(jd_intel["keywords"], f, indent=2)
         
-    queries = {
-        "v1_skills": build_v1_skills_text(JD_CONFIG),
-        "hyde_recsys": JD_HYDE_RECSYS_TEXT,
-        "hyde_eval": JD_HYDE_EVAL_TEXT,
-    }
+    queries = jd_intel["queries"]
     
     sparse_dicts = []
     
     for name, text in queries.items():
-        output = model.encode(
-            text,
-            return_dense=True,
-            return_sparse=True,
-            return_colbert_vecs=False
-        )
+        with open(os.devnull, 'w') as devnull:
+            old_stderr = sys.stderr
+            sys.stderr = devnull
+            try:
+                output = model.encode(
+                    text,
+                    return_dense=True,
+                    return_sparse=True,
+                    return_colbert_vecs=False
+                )
+            finally:
+                sys.stderr = old_stderr
         # BGE-M3 model.encode returns a dict or list depending on input. For single string, it returns single item lists.
         # But wait, it might return a dict like {'dense_vecs': ndarray, 'lexical_weights': dict}.
         dense_vec = output["dense_vecs"]
@@ -207,14 +133,15 @@ def run_phase_0(model):
             lex_weights = lex_weights[0]
         sparse_dicts.append(lex_weights)
 
-    vocab_size = max(max(d.keys() for d in sparse_dicts if d)) + 1
+    non_empty = [d for d in sparse_dicts if d]
+    vocab_size = max(max(int(k) for k in d.keys()) for d in non_empty) + 1 if non_empty else 1
     
     rows, cols, vals = [], [], []
     for i, d in enumerate(sparse_dicts):
         for token_id, weight in d.items():
             rows.append(i)
-            cols.append(token_id)
-            vals.append(weight)
+            cols.append(int(token_id))
+            vals.append(float(weight))
             
     query_sparse_csr = scipy.sparse.csr_matrix(
         (vals, (rows, cols)),
@@ -247,18 +174,25 @@ def run_phase_1(model, candidates, batch_size):
     
     for i in tqdm(range(0, len(all_texts), batch_size)):
         batch = all_texts[i:i + batch_size]
-        output = model.encode(
-            batch,
-            return_dense=True,
-            return_sparse=True,
-            return_colbert_vecs=False
-        )
+        with open(os.devnull, 'w') as devnull:
+            old_stderr = sys.stderr
+            sys.stderr = devnull
+            try:
+                output = model.encode(
+                    batch,
+                    return_dense=True,
+                    return_sparse=True,
+                    return_colbert_vecs=False
+                )
+            finally:
+                sys.stderr = old_stderr
         all_dense.append(output["dense_vecs"])
         all_sparse_dicts.extend(output["lexical_weights"])
 
     embeddings = np.vstack(all_dense).astype(np.float32)
-    # L2 normalize
-    faiss.normalize_L2(embeddings)
+    # L2 normalize using safe numpy to avoid missing FAISS attributes
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    embeddings = embeddings / np.where(norms == 0, 1e-10, norms)
     
     index = faiss.IndexFlatIP(embeddings.shape[1])
     index.add(embeddings)
@@ -270,12 +204,13 @@ def run_phase_1(model, candidates, batch_size):
     print(f"FAISS index saved: {len(all_ids):,} candidates, dim={embeddings.shape[1]}")
     
     # Sparse CSR
-    vocab_size = max(max(d.keys() for d in all_sparse_dicts if d)) + 1
+    non_empty_all = [d for d in all_sparse_dicts if d]
+    vocab_size = max(max(int(k) for k in d.keys()) for d in non_empty_all) + 1 if non_empty_all else 1
     rows, cols, vals = [], [], []
     for i, d in enumerate(all_sparse_dicts):
         for token_id, weight in d.items():
             rows.append(i)
-            cols.append(token_id)
+            cols.append(int(token_id))
             vals.append(float(weight))
             
     candidate_sparse_csr = scipy.sparse.csr_matrix(
@@ -338,9 +273,15 @@ def _check_impossible_flag(candidate: dict) -> bool:
         if claimed_months > max_possible_months + constants.YOE_IMPOSSIBLE_BUFFER_MONTHS:
             return True
             
-    # I-5: Skill duration mathematically impossible given YoE (from validation_set rules)
+    # I-5: Skill duration wildly exceeds claimed YoE.
+    # Skill-duration fields are noisy and overlapping, so a small overshoot should
+    # become a contradiction penalty, not a hard kill. Keep this rule for absurd
+    # claims only.
     yoe_months = profile.get("years_of_experience", 0) * 12
-    if any((s.get("duration_months") or 0) > yoe_months + 6 for s in skills):
+    if any(
+        (s.get("duration_months") or 0) > yoe_months + constants.SKILL_DURATION_SOFT_FLAG_BUFFER_MONTHS
+        for s in skills
+    ):
         return True
         
     # I-6: Expert/Advanced skill failed basic assessment (from validation_set rules)
@@ -427,6 +368,7 @@ def _is_ghost(candidate: dict, reference_date: date) -> bool:
 
 def run_phase_1f_honeypots(candidates):
     print("\n--- Phase 1f: Honeypot Detection ---")
+    feature_contract = build_feature_contract(constants.JD_CONTRACT_YAML)
     
     # Find reference date (max last_active_date)
     max_date = date(1970, 1, 1)
@@ -464,13 +406,13 @@ def run_phase_1f_honeypots(candidates):
         consulting_only = (product_ratio == 0.0)
         
         engineering_titles = {"engineer", "developer", "data scientist", "applied scientist", "architect", "lead", "head"}
-        research_titles = {"researcher", "research scientist", "phd", "postdoc", "intern"}
+        research_titles = set(feature_contract["research_title_terms"]) | {"researcher", "phd", "postdoc", "intern"}
         has_eng = any(t in titles_lower for t in engineering_titles)
         has_res = any(t in titles_lower for t in research_titles)
         research_only = has_res and not has_eng
         
-        cv_terms = {"computer vision", "opencv", "yolo", "object detection", "speech recognition", "tts", "asr", "robotics"}
-        nlp_terms = {"nlp", "retrieval", "ranking", "recommendation", "search", "embedding", "information retrieval"}
+        cv_terms = set(feature_contract["wrong_domain_terms"])
+        nlp_terms = set(feature_contract["wrong_domain_escape_terms"])
         has_cv = any(t in desc_text or any(t in s for s in skills_lower) for t in cv_terms)
         has_nlp = any(t in desc_text or any(t in s for s in skills_lower) for t in nlp_terms)
         wrong_domain = has_cv and not has_nlp
@@ -542,18 +484,19 @@ def run_phase_1d_rrf():
     # 4: Sparse
     candidate_csr = scipy.sparse.load_npz(constants.CANDIDATE_SPARSE_NPZ)
     jd_sparse = scipy.sparse.load_npz(constants.JD_SPARSE_QUERIES_NPZ)
-    jd_sparse_row = jd_sparse[0] # Canonical sparse query
     
     vocab_size = candidate_csr.shape[1]
-    if jd_sparse_row.shape[1] < vocab_size:
-        jd_sparse_row = scipy.sparse.hstack([
-            jd_sparse_row,
-            scipy.sparse.csr_matrix((1, vocab_size - jd_sparse_row.shape[1]))
+    if jd_sparse.shape[1] < vocab_size:
+        jd_sparse = scipy.sparse.hstack([
+            jd_sparse,
+            scipy.sparse.csr_matrix((jd_sparse.shape[0], vocab_size - jd_sparse.shape[1]))
         ])
-    elif jd_sparse_row.shape[1] > vocab_size:
-        jd_sparse_row = jd_sparse_row[:, :vocab_size]
+    elif jd_sparse.shape[1] > vocab_size:
+        jd_sparse = jd_sparse[:, :vocab_size]
         
-    sparse_scores = candidate_csr.dot(jd_sparse_row.T).toarray().flatten()
+    # Keep RRF as a 5-channel fusion, but let the learned-sparse channel see all
+    # YAML-derived query rows instead of only the first skills row.
+    sparse_scores = candidate_csr.dot(jd_sparse.T).toarray().max(axis=1)
     top_sparse_idx = np.argsort(sparse_scores)[::-1][:k_search]
     sparse_ids = [all_ids[i] for i in top_sparse_idx]
     
@@ -629,7 +572,7 @@ def run_phase_1e_cross_encoder(candidates, model):
     top_ids = retrieval_df["candidate_id"].head(constants.CE_PRECOMPUTE_TOPK).to_list()
     top_set = set(top_ids)
     
-    jd_v1 = build_v1_skills_text(JD_CONFIG)
+    jd_v1 = build_jd_intelligence(constants.JD_CONTRACT_YAML, constants.JD_TEXT)["cross_encoder_query"]
     
     pairs = []
     pair_cids = []
