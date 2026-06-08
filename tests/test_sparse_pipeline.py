@@ -187,42 +187,47 @@ def test_ghost_open_to_work():
 # 4. Honeypot detection — impossible_flag
 # ---------------------------------------------------------------------------
 
-IMPOSSIBLE_TECH_RELEASES = {
-    "qdrant":     (2021, 6),
-    "milvus":     (2019, 10),
-    "pinecone":   (2019, 1),
-    "langchain":  (2022, 10),
-    "llamaindex": (2022, 11),
+TARGET_SKILL_TERMS = {
+    "qdrant",
+    "milvus",
+    "pinecone",
+    "langchain",
+    "llamaindex",
+    "retrieval",
+    "ranking",
+    "vector",
 }
-RELEASE_BUFFER_MONTHS = 12
+TARGET_SKILL_DURATION_BUFFER_MONTHS = 6
 
 
 def check_impossible_flag(skills: list, reference_date: datetime.date) -> bool:
-    """Returns True if any skill claims more months than physically possible."""
-    for skill in skills:
-        name_lower = skill.get("name", "").lower()
-        for tech, (rel_year, rel_month) in IMPOSSIBLE_TECH_RELEASES.items():
-            if tech in name_lower:
-                release_date = datetime.date(rel_year, rel_month, 1)
-                months_since_release = (reference_date - release_date).days / 30.436875
-                claimed_months = skill.get("duration_months", 0)
-                if claimed_months > months_since_release + RELEASE_BUFFER_MONTHS:
-                    return True
+    """External release-date knowledge must not hard-kill candidates."""
     return False
 
 
+def target_skill_duration_contradictions(skills: list, years_of_experience: float) -> int:
+    """Soft count of target skill claims exceeding the candidate's stated YoE."""
+    yoe_months = years_of_experience * 12
+    count = 0
+    for skill in skills:
+        name_lower = skill.get("name", "").lower()
+        if not any(term in name_lower for term in TARGET_SKILL_TERMS):
+            continue
+        if skill.get("duration_months", 0) > yoe_months + TARGET_SKILL_DURATION_BUFFER_MONTHS:
+            count += 1
+    return count
+
+
 def test_impossible_flag_qdrant_too_long():
-    """Claiming 80 months of Qdrant (released Jun 2021) → impossible."""
+    """Claiming long Qdrant duration is not a hard kill without JSONL-internal proof."""
     ref = datetime.date(2026, 6, 1)
     skills = [{"name": "Qdrant", "duration_months": 80}]
-    # Qdrant is 60 months old as of Jun 2026. Max allowed = 60 + 12 = 72 months.
-    # 80 > 72 → should flag.
-    assert check_impossible_flag(skills, ref) is True
+    assert check_impossible_flag(skills, ref) is False
     print("PASS: test_impossible_flag_qdrant_too_long")
 
 
 def test_impossible_flag_qdrant_valid():
-    """Claiming 50 months of Qdrant → valid (< 72 months max)."""
+    """Claiming 50 months of Qdrant remains valid."""
     ref = datetime.date(2026, 6, 1)
     skills = [{"name": "Qdrant", "duration_months": 50}]
     assert check_impossible_flag(skills, ref) is False
@@ -230,12 +235,17 @@ def test_impossible_flag_qdrant_valid():
 
 
 def test_impossible_flag_langchain_extreme():
-    """Claiming 60 months of LangChain (released Oct 2022, ~44 months ago) → impossible."""
+    """External LangChain launch timing is not a hard exclusion."""
     ref = datetime.date(2026, 6, 1)
     skills = [{"name": "LangChain", "duration_months": 60}]
-    # LangChain is ~44 months old. Max = 44 + 12 = 56 months. 60 > 56 → flag.
-    assert check_impossible_flag(skills, ref) is True
+    assert check_impossible_flag(skills, ref) is False
     print("PASS: test_impossible_flag_langchain_extreme")
+
+
+def test_target_skill_duration_is_soft_yoe_signal():
+    """Target skill duration over claimed YoE is tracked as soft evidence."""
+    skills = [{"name": "Pinecone", "duration_months": 88}]
+    assert target_skill_duration_contradictions(skills, years_of_experience=6.0) == 1
 
 
 def test_impossible_flag_unrelated_skill():

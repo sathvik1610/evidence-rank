@@ -192,7 +192,7 @@ def score_career_quality(
         1 for p in PRODUCTION_PATTERNS
         if re.search(p, career_text, re.IGNORECASE)
     )
-    deploy_signal = min(deploy_count / 5.0, 1.0)
+    deploy_signal = min(deploy_count / W["features.deploy_signal_hit_cap"], 1.0)
 
     # Experience recency: is the most recent role in a relevant domain?
     # Career history is typically ordered most-recent first (index 0 = current).
@@ -212,7 +212,7 @@ def score_career_quality(
             for p in RETRIEVAL_PATTERNS + RANKING_PATTERNS
         )
     )
-    depth_signal = min(roles_with_retrieval / 2.0, 1.0)
+    depth_signal = min(roles_with_retrieval / W["features.depth_signal_role_cap"], 1.0)
 
     # Search/Ranking/Recommendation System Experience Score
     has_sys_evidence = any(
@@ -245,9 +245,9 @@ def score_career_quality(
         if descriptions else 0
     )
     writing_signal = (
-        1.00 if avg_desc_len >= 150
-        else 0.95 if avg_desc_len >= 60
-        else 0.90
+        W["features.writing_strong_mult"] if avg_desc_len >= W["features.writing_strong_desc_len"]
+        else W["features.writing_ok_mult"] if avg_desc_len >= W["features.writing_ok_desc_len"]
+        else W["features.writing_weak_mult"]
     )
 
     # Ownership signal: founding-team / built-from-scratch language
@@ -257,10 +257,10 @@ def score_career_quality(
 
     # Product Builder Score composite — [0, 1]
     product_builder_score = (
-        0.35 * product_ratio +
-        0.30 * deploy_signal +
-        0.20 * shipper_ratio +
-        0.15 * (1.0 if ownership_signal else 0.0)
+        W["scoring.product_builder_sub.product_ratio_weight"] * product_ratio +
+        W["scoring.product_builder_sub.deploy_signal_weight"] * deploy_signal +
+        W["scoring.product_builder_sub.shipper_ratio_weight"] * shipper_ratio +
+        W["scoring.product_builder_sub.ownership_weight"] * (1.0 if ownership_signal else 0.0)
     )
     # Disqualifier multipliers (consulting/research backgrounds penalised)
     if flags.get("consulting_only"):
@@ -462,7 +462,7 @@ def extract_behavioral(candidate: Dict[str, Any]) -> Dict[str, Any]:
     return {
         # Availability signals (used in Phase 5 reachability_multiplier)
         "last_active_date":          signals.get("last_active_date", None),
-        "open_to_work":              signals.get("open_to_work_flag", False),
+        "open_to_work":              signals.get("open_to_work_flag", None),
         "recruiter_response_rate":   signals.get("recruiter_response_rate", 0.5),  # Default 0.5 (not -1)
         "avg_response_time_hours":   signals.get("avg_response_time_hours", 24.0),
         "notice_period_days":        signals.get("notice_period_days", 60),
@@ -586,6 +586,8 @@ def extract_features(
         # contradiction counts (computed in Phase 1f; 0 if not available)
         "contradiction_skill_duration": flags.get("contradiction_skill_duration", 0),
         "contradiction_assessment":     flags.get("contradiction_assessment", 0),
+        "target_skill_duration_contradiction": flags.get("target_skill_duration_contradiction", 0),
+        "max_target_skill_overclaim_months":   flags.get("max_target_skill_overclaim_months", 0.0),
     }
 
     return features

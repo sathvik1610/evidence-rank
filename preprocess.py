@@ -15,6 +15,8 @@ import json
 import pickle
 import argparse
 import re
+import math
+import shutil
 from datetime import date, datetime
 import numpy as np
 import pandas as pd
@@ -252,17 +254,10 @@ def _check_impossible_flag(candidate: dict) -> bool:
         if role.get("duration_months", 0) < 0:
             return True
             
-    # I-3: Technology claimed before existed
-    for skill in skills:
-        name_lower = skill.get("name", "").lower()
-        for tech, (rel_year, rel_month) in constants.IMPOSSIBLE_TECH_RELEASES.items():
-            if tech in name_lower:
-                release_date = date(rel_year, rel_month, 1)
-                months_since_release = (date.today() - release_date).days / 30.436875
-                claimed_months = skill.get("duration_months", 0)
-                if claimed_months > months_since_release + constants.RELEASE_BUFFER_MONTHS:
-                    return True
-                    
+    # I-3 reserved: Do not hard-kill from external technology release dates.
+    # The reproducible ranking should rely on contradictions visible in the
+    # released candidate JSONL, not outside product-history knowledge.
+
     # I-4: Total YoE impossible
     start_dates = [parse_date(r.get("start_date")) for r in career]
     start_dates = [d for d in start_dates if d]
@@ -292,6 +287,12 @@ def _check_impossible_flag(candidate: dict) -> bool:
         and assessment_scores[s.get("name")] < 40 
         for s in skills
     ):
+        return True
+
+    # I-7: Long role descriptions copied verbatim across three or more
+    # different employers. This is an adversarial synthetic-profile pattern,
+    # not normal resume summarization.
+    if _has_repeated_role_descriptions(candidate):
         return True
             
     return False
@@ -345,6 +346,50 @@ def _compute_honeypot_score(candidate: dict) -> float:
             score += W["honeypot.s6_uniform_descriptions"]
             
     return min(score, 1.0)
+
+
+def _normalize_role_description(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _has_repeated_role_descriptions(candidate: dict) -> bool:
+    """Detect copied long descriptions across multiple companies."""
+    career = candidate.get("career_history", [])
+    desc_to_companies: dict[str, set[str]] = {}
+    for role in career:
+        desc = _normalize_role_description(role.get("description", ""))
+        if len(desc) < 160:
+            continue
+        desc_to_companies.setdefault(desc, set()).add((role.get("company") or "").strip().lower())
+
+    return any(len(companies) >= 3 for companies in desc_to_companies.values())
+
+
+def _target_skill_duration_contradictions(candidate: dict) -> tuple[int, float]:
+    """Count target-domain skill duration claims that exceed claimed YoE."""
+    yoe_months = (candidate.get("profile", {}).get("years_of_experience", 0) or 0) * 12
+    if yoe_months <= 0:
+        return 0, 0.0
+
+    contradiction_count = 0
+    max_overclaim = 0.0
+    target_terms = constants.TARGET_SKILL_DURATION_TERMS
+    target_proficiencies = {"expert", "advanced"}
+
+    for skill in candidate.get("skills", []):
+        name = (skill.get("name") or "").lower()
+        if not name or not any(term in name for term in target_terms):
+            continue
+        if (skill.get("proficiency") or "").lower() not in target_proficiencies:
+            continue
+
+        duration = skill.get("duration_months") or 0
+        overclaim = duration - (yoe_months + constants.TARGET_SKILL_DURATION_BUFFER_MONTHS)
+        if overclaim > 0:
+            contradiction_count += 1
+            max_overclaim = max(max_overclaim, overclaim)
+
+    return contradiction_count, round(float(max_overclaim), 2)
 
 
 def _is_ghost(candidate: dict, reference_date: date) -> bool:
@@ -433,6 +478,7 @@ def run_phase_1f_honeypots(candidates):
             and s.get("name") in assessment_scores
             and assessment_scores[s["name"]] < 40
         )
+        target_contradictions, max_target_overclaim = _target_skill_duration_contradictions(c)
 
         records.append({
             "candidate_id": cid,
@@ -446,6 +492,8 @@ def run_phase_1f_honeypots(candidates):
             "wrong_domain": wrong_domain,
             "contradiction_skill_duration": contradiction_skill_duration,
             "contradiction_assessment": contradiction_assessment,
+            "target_skill_duration_contradiction": target_contradictions,
+            "max_target_skill_overclaim_months": max_target_overclaim,
         })
         
     df = pd.DataFrame(records)
@@ -459,7 +507,131 @@ def run_phase_1f_honeypots(candidates):
 # Phase 1d: RRF Retrieval
 # ---------------------------------------------------------------------------
 
-def run_phase_1d_rrf():
+def _compile_recall_patterns(feature_contract: dict) -> dict[str, list[re.Pattern]]:
+    """Compile field-aware exact recall patterns from the JD contract."""
+    pattern_groups = {
+        "primary": (
+            feature_contract["retrieval_patterns"]
+            + feature_contract["ranking_patterns"]
+            + feature_contract["system_semantics_patterns"]
+        ),
+        "vector": feature_contract["target_skills"]["vector_db_hybrid"],
+        "eval": feature_contract["target_skills"]["eval_framework"],
+        "python": feature_contract["target_skills"]["python_coding"],
+        "production": feature_contract["production_patterns"],
+    }
+    return {
+        name: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+        for name, patterns in pattern_groups.items()
+    }
+
+
+def _count_pattern_hits(text: str, patterns: list[re.Pattern]) -> int:
+    if not text:
+        return 0
+    return sum(1 for pattern in patterns if pattern.search(text))
+
+
+def _score_exact_recall_candidate(candidate: dict, compiled_patterns: dict[str, list[re.Pattern]]) -> float:
+    """
+    Field-aware lexical rescue score.
+
+    This lane is deliberately recall-oriented but not a generic keyword counter:
+    it requires at least one primary retrieval/ranking/recsys signal, then rewards
+    career-history evidence more than skills-only claims.
+    """
+    profile = candidate.get("profile", {})
+    career = candidate.get("career_history", [])
+    skills = candidate.get("skills", [])
+
+    current_title = str(profile.get("current_title") or "")
+    headline = str(profile.get("headline") or "")
+    summary = str(profile.get("summary") or "")
+    title_text = " ".join(
+        [current_title, headline]
+        + [str(role.get("title") or "") for role in career]
+    )
+    desc_text = " ".join(str(role.get("description") or "") for role in career)
+    summary_text = " ".join([summary, str(profile.get("current_industry") or "")])
+    skills_text = " ".join(str(skill.get("name") or "") for skill in skills)
+
+    primary_title = _count_pattern_hits(title_text, compiled_patterns["primary"])
+    primary_desc = _count_pattern_hits(desc_text, compiled_patterns["primary"])
+    primary_summary = _count_pattern_hits(summary_text, compiled_patterns["primary"])
+    primary_skills = _count_pattern_hits(skills_text, compiled_patterns["primary"])
+    primary_total = primary_title + primary_desc + primary_summary + primary_skills
+    if primary_total == 0:
+        return 0.0
+
+    vector_desc = _count_pattern_hits(desc_text, compiled_patterns["vector"])
+    vector_skills = _count_pattern_hits(skills_text, compiled_patterns["vector"])
+    eval_desc = _count_pattern_hits(desc_text, compiled_patterns["eval"])
+    eval_skills = _count_pattern_hits(skills_text, compiled_patterns["eval"])
+    python_hits = _count_pattern_hits(desc_text + " " + skills_text, compiled_patterns["python"])
+    production_hits = _count_pattern_hits(desc_text, compiled_patterns["production"])
+
+    # Cap each component so verbose profiles do not dominate by repetition.
+    score = (
+        6.0 * min(primary_desc, 4)
+        + 3.0 * min(primary_title, 3)
+        + 2.0 * min(primary_summary, 2)
+        + 1.5 * min(primary_skills, 5)
+        + 3.0 * min(vector_desc, 3)
+        + 1.0 * min(vector_skills, 4)
+        + 3.0 * min(eval_desc, 3)
+        + 1.0 * min(eval_skills, 3)
+        + 0.75 * min(python_hits, 3)
+        + 2.5 * min(production_hits, 4)
+    )
+
+    # Require either career-description evidence or multiple corroborating fields.
+    # This suppresses pure skill-list stuffing while still rescuing sparse profiles.
+    if primary_desc == 0 and primary_title == 0 and primary_skills < 2:
+        return 0.0
+
+    yoe = profile.get("years_of_experience")
+    if isinstance(yoe, (int, float)):
+        if 4.0 <= yoe <= 12.0:
+            score *= 1.05
+        elif yoe < 3.0 or yoe > 15.0:
+            score *= 0.90
+
+    return float(score)
+
+
+def build_exact_recall_ranked_list(candidates: list[dict], ghost_ids: set[str] | None = None) -> list[str]:
+    """
+    Build a high-recall exact/regex candidate list over the whole corpus.
+
+    This uses only raw candidate JSON and the JD contract, so it can run during
+    --skip-embed to widen the feature pool without recomputing BGE embeddings.
+    """
+    ghost_ids = ghost_ids or set()
+    feature_contract = build_feature_contract(constants.JD_CONTRACT_YAML)
+    compiled_patterns = _compile_recall_patterns(feature_contract)
+
+    scored: list[tuple[str, float]] = []
+    for candidate in candidates:
+        cid = candidate.get("candidate_id")
+        if not cid or cid in ghost_ids:
+            continue
+        score = _score_exact_recall_candidate(candidate, compiled_patterns)
+        if score > 0.0 and math.isfinite(score):
+            scored.append((cid, score))
+
+    scored.sort(key=lambda item: (-item[1], item[0]))
+    return [cid for cid, _ in scored[:constants.EXACT_RECALL_TOPK]]
+
+
+def _rrf(ranked_lists, k=int(W["retrieval.rrf_k"])):
+    scores = {}
+    for ranked in ranked_lists:
+        for rank_idx, cand_id in enumerate(ranked):
+            scores[cand_id] = scores.get(cand_id, 0.0) + 1.0 / (k + rank_idx + 1)
+    return scores
+
+
+def run_phase_1d_rrf(candidates=None):
     print("\n--- Phase 1d: RRF Retrieval ---")
     import faiss
     
@@ -522,6 +694,17 @@ def run_phase_1d_rrf():
     rrf_scores = rrf([
         dense_ids_v1, dense_ids_recsys, dense_ids_eval, sparse_ids, sparse_ids_bm25
     ])
+    base_retrieved = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:constants.RRF_PRECOMPUTE_TOPK]
+    pd.DataFrame(base_retrieved, columns=["candidate_id", "rrf_score"]).to_parquet(
+        constants.BASE_RETRIEVAL_SCORES_PARQUET
+    )
+
+    if candidates is not None:
+        exact_ids = build_exact_recall_ranked_list(candidates, ghost_ids=ghost_ids)
+        rrf_scores = _rrf([
+            dense_ids_v1, dense_ids_recsys, dense_ids_eval, sparse_ids, sparse_ids_bm25, exact_ids
+        ])
+        print(f"Added exact recall lane: {len(exact_ids)} candidates")
     
     retrieved = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:constants.RRF_PRECOMPUTE_TOPK]
     
@@ -530,11 +713,54 @@ def run_phase_1d_rrf():
     print(f"RRF retrieval saved to {constants.RETRIEVAL_SCORES_PARQUET} ({len(df)} candidates)")
 
 
+def run_phase_1d_recall_rescue(candidates):
+    """
+    Widen an existing retrieval_scores.parquet with the exact recall lane.
+
+    Intended for --skip-embed experiments: keep existing BGE/FAISS/BM25 retrieval
+    scores, add a CPU-cheap all-corpus lexical rescue list, then re-extract
+    features for the widened pool.
+    """
+    print("\n--- Phase 1d: High-Recall Rescue (existing RRF + exact lane) ---")
+    base_path = constants.BASE_RETRIEVAL_SCORES_PARQUET
+    if not os.path.exists(base_path):
+        if not os.path.exists(constants.RETRIEVAL_SCORES_PARQUET):
+            print(f"Warning: {constants.RETRIEVAL_SCORES_PARQUET} not found. Skipping recall rescue.")
+            return
+        shutil.copyfile(constants.RETRIEVAL_SCORES_PARQUET, base_path)
+        print(f"Created base retrieval snapshot: {base_path}")
+
+    if not os.path.exists(base_path):
+        print(f"Warning: {base_path} not found. Skipping recall rescue.")
+        return
+
+    ghost_ids = set()
+    if os.path.exists(constants.CANDIDATE_FLAGS_PARQUET):
+        flags_df = pl.read_parquet(constants.CANDIDATE_FLAGS_PARQUET)
+        if "is_ghost" in flags_df.columns:
+            ghost_ids = set(
+                flags_df.filter(pl.col("is_ghost") == True)["candidate_id"].to_list()
+            )
+
+    retrieval_df = pl.read_parquet(base_path)
+    base_ids = retrieval_df.sort("rrf_score", descending=True)["candidate_id"].to_list()
+    exact_ids = build_exact_recall_ranked_list(candidates, ghost_ids=ghost_ids)
+
+    fused_scores = _rrf([base_ids, exact_ids])
+    retrieved = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)[:constants.RRF_PRECOMPUTE_TOPK]
+    df = pd.DataFrame(retrieved, columns=["candidate_id", "rrf_score"])
+    df.to_parquet(constants.RETRIEVAL_SCORES_PARQUET)
+    print(
+        f"High-recall retrieval saved to {constants.RETRIEVAL_SCORES_PARQUET} "
+        f"({len(df)} candidates; exact lane={len(exact_ids)})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Phase 1c: Feature Extraction
 # ---------------------------------------------------------------------------
 
-def run_phase_1c_features(candidates, is_skip_embed=False):
+def run_phase_1c_features(candidates, is_skip_embed=False, force_all=False):
     print("\n--- Phase 1c: Feature Extraction ---")
     
     # Read flags
@@ -542,7 +768,7 @@ def run_phase_1c_features(candidates, is_skip_embed=False):
     flags_dict = {row["candidate_id"]: row for row in flags_df.to_dicts()}
     
     # Determine which candidates to extract
-    if is_skip_embed:
+    if force_all:
         target_ids = {c["candidate_id"] for c in candidates}
     else:
         retrieval_df = pl.read_parquet(constants.RETRIEVAL_SCORES_PARQUET)
@@ -606,6 +832,7 @@ def main():
     parser = argparse.ArgumentParser(description="Offline Corpus Preprocessing Pipeline")
     parser.add_argument("--candidates", type=str, default=constants.CANDIDATES_JSONL, help="Path to candidates.jsonl")
     parser.add_argument("--skip-embed", action="store_true", help="Skip heavy embedding phases for local testing (runs honeypot & features only)")
+    parser.add_argument("--only-cross-encoder", action="store_true", help="Only refresh cross-encoder scores for the current retrieval pool")
     parser.add_argument("--sample", action="store_true", help="Run on a small sample of candidates (usually 50)")
     args = parser.parse_args()
     
@@ -626,6 +853,13 @@ def main():
             candidates = json.load(f)
             
     print(f"Loaded {len(candidates)} candidates.")
+
+    if args.only_cross_encoder:
+        print("\nRunning only Phase 1e Cross-Encoder refresh")
+        ce_model = get_cross_encoder()
+        run_phase_1e_cross_encoder(candidates, ce_model)
+        print("\nCross-Encoder Refresh Complete!")
+        return
     
     if not args.skip_embed:
         import torch
@@ -644,10 +878,17 @@ def main():
     
     if not args.skip_embed:
         # Phase 1d (RRF) - Requires embeddings
-        run_phase_1d_rrf()
+        run_phase_1d_rrf(candidates)
+    elif not args.sample:
+        # Reuse existing dense/sparse/BM25 retrieval artifacts, then add the
+        # CPU-cheap exact recall lane. This lets us test upper-funnel recall
+        # without recomputing BGE embeddings.
+        run_phase_1d_recall_rescue(candidates)
+    else:
+        print("\nSkipping Phase 1d recall rescue for --sample --skip-embed")
         
     # Phase 1c (Features) - Works with or without embeddings
-    run_phase_1c_features(candidates, is_skip_embed=args.skip_embed)
+    run_phase_1c_features(candidates, is_skip_embed=args.skip_embed, force_all=args.sample)
     
     if not args.skip_embed:
         # Phase 1e (Cross-Encoder) - Requires GPU + RRF output
