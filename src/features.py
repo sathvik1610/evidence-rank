@@ -149,6 +149,123 @@ def score_skill_bucket(
 
 _OWNERSHIP_PATTERNS = JD_FEATURE_CONTRACT["ownership_patterns"]
 
+_ADJACENT_CAREER_PATTERNS = (
+    r"\bchurn\b",
+    r"\bfraud\b",
+    r"\bclassification\b",
+    r"\bforecast(?:ing)?\b",
+    r"\bmlops\b",
+    r"\bkubeflow\b",
+    r"\bmlflow\b",
+    r"\bchatbot\b",
+    r"\bsupport bot\b",
+    r"\bbleu\b",
+    r"\brouge\b",
+    r"\bcomputer vision\b",
+    r"\bspeech\b",
+    r"\btts\b",
+    r"\basr\b",
+    r"\byolo\b",
+    r"customer[\s._/-]+support[\s._/-]+chatbot",
+    r"ticketing[\s._/-]+system",
+)
+
+_PRODUCT_IR_PATTERNS = [
+    r"\bmatching[\s._/-]+layer\b",
+    r"\brelevant[\s._/-]+matches\b",
+    r"\blearned[\s._/-]+relevance\b",
+    r"\bsearch[\s._/-]+and[\s._/-]+discovery\b",
+    r"\bpersonalization[\s._/-]+infrastructure\b",
+    r"\boffline[\s._/-]+experimentation[\s._/-]+environment\b",
+    r"\bonline[\s._/-]+a/b[\s._/-]+testing[\s._/-]+framework\b",
+]
+
+_CORE_ROLE_PATTERNS = (
+    RETRIEVAL_PATTERNS +
+    RANKING_PATTERNS +
+    RECOMMENDATION_PATTERNS +
+    EVALUATION_PATTERNS +
+    _PRODUCT_IR_PATTERNS
+)
+
+
+def _role_has(patterns: List[str], text: str) -> bool:
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def compute_career_density(career: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Measure whether IR/ranking/eval is a sustained career pattern.
+
+    The audits found repeated synthetic templates across unrelated employers.
+    A single strong role is still useful evidence, but if most of the candidate's
+    months are churn/MLOps/chatbot/CV work, that one template should not dominate
+    the top-10 ranking.
+    """
+    total_months = 0.0
+    core_months = 0.0
+    eval_months = 0.0
+    adjacent_months = 0.0
+    core_roles = 0
+    eval_roles = 0
+    adjacent_roles = 0
+
+    for role in career:
+        role_text = " ".join(
+            str(role.get(k) or "")
+            for k in ("title", "description", "industry")
+        )
+        months = float(role.get("duration_months") or 0.0)
+        if months <= 0:
+            months = 1.0
+        total_months += months
+
+        has_core = _role_has(_CORE_ROLE_PATTERNS, role_text)
+        has_eval = _role_has(EVALUATION_PATTERNS, role_text)
+        has_adjacent = _role_has(_ADJACENT_CAREER_PATTERNS, role_text)
+
+        if has_core:
+            core_roles += 1
+            core_months += months
+        if has_eval:
+            eval_roles += 1
+            eval_months += months
+        if has_adjacent:
+            adjacent_roles += 1
+            adjacent_months += months
+
+    role_count = len(career) or 1
+    if total_months <= 0:
+        total_months = float(role_count)
+
+    career_ir_density = core_months / total_months
+    career_eval_density = eval_months / total_months
+    adjacent_career_ratio = adjacent_months / total_months
+    rag_support_template_risk = (
+        adjacent_career_ratio >= 0.65
+        and adjacent_roles >= 2
+        and career_eval_density < 0.30
+    )
+    isolated_template_risk = (
+        core_roles <= 1
+        and adjacent_career_ratio >= 0.35
+    ) or (
+        career_ir_density < 0.40
+        and adjacent_career_ratio >= 0.50
+    ) or (
+        rag_support_template_risk
+    )
+
+    return {
+        "career_ir_density": round(career_ir_density, 4),
+        "career_eval_density": round(career_eval_density, 4),
+        "adjacent_career_ratio": round(adjacent_career_ratio, 4),
+        "core_ir_role_count": core_roles,
+        "eval_role_count": eval_roles,
+        "adjacent_role_count": adjacent_roles,
+        "isolated_template_risk": isolated_template_risk,
+    }
+
 
 def compute_product_ratio(candidate: Dict[str, Any]) -> float:
     """
@@ -213,6 +330,7 @@ def score_career_quality(
         )
     )
     depth_signal = min(roles_with_retrieval / W["features.depth_signal_role_cap"], 1.0)
+    density = compute_career_density(career)
 
     # Search/Ranking/Recommendation System Experience Score
     has_sys_evidence = any(
@@ -262,6 +380,10 @@ def score_career_quality(
         W["scoring.product_builder_sub.shipper_ratio_weight"] * shipper_ratio +
         W["scoring.product_builder_sub.ownership_weight"] * (1.0 if ownership_signal else 0.0)
     )
+    if density["career_ir_density"] >= 0.60 and density["core_ir_role_count"] >= 2:
+        product_builder_score += 0.04
+    if density["isolated_template_risk"]:
+        product_builder_score *= 0.90
     # Disqualifier multipliers (consulting/research backgrounds penalised)
     if flags.get("consulting_only"):
         product_builder_score *= JD_FEATURE_CONTRACT["multiplier_values"]["consulting_heavy_soft_penalty"]
@@ -280,6 +402,7 @@ def score_career_quality(
         "sys_experience_score":  sys_experience_score,
         "product_builder_score": round(min(product_builder_score, 1.0), 4),
         "ownership_signal":      ownership_signal,
+        **density,
     }
 
 
@@ -554,6 +677,13 @@ def extract_features(
         "sys_experience_score":   bucket_b["sys_experience_score"],
         "product_builder_score":  bucket_b["product_builder_score"],
         "ownership_signal":       bucket_b["ownership_signal"],
+        "career_ir_density":      bucket_b["career_ir_density"],
+        "career_eval_density":    bucket_b["career_eval_density"],
+        "adjacent_career_ratio":  bucket_b["adjacent_career_ratio"],
+        "core_ir_role_count":     bucket_b["core_ir_role_count"],
+        "eval_role_count":        bucket_b["eval_role_count"],
+        "adjacent_role_count":    bucket_b["adjacent_role_count"],
+        "isolated_template_risk": bucket_b["isolated_template_risk"],
         # Bucket C — gap flags
         "title_velocity_flag":  bucket_c["title_velocity_flag"],
         "consulting_flag":       bucket_c["consulting_flag"],

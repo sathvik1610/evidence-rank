@@ -53,10 +53,10 @@ RUN_METADATA_JSON         = "artifacts/run_metadata.json"
 RETRIEVAL_SCORES_PARQUET  = "artifacts/retrieval_scores.parquet"
 BASE_RETRIEVAL_SCORES_PARQUET = "artifacts/retrieval_scores_base.parquet"
 
-# Phase 1c — Feature extraction (Bucket A/B/C, top 5000)
+# Phase 1c — Feature extraction (Bucket A/B/C for the widened retrieval pool)
 CANDIDATE_FEATURES_PARQUET = "artifacts/candidate_features.parquet"
 
-# Phase 1e — Cross-encoder scores (top 500 offline)
+# Phase 1e — Cross-encoder scores (configured widened pool offline)
 CROSS_ENCODER_SCORES_PARQUET = "artifacts/cross_encoder_scores.parquet"
 
 # ---------------------------------------------------------------------------

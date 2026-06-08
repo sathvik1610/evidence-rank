@@ -48,7 +48,10 @@ def has_current_consulting_weak_ir(cand: dict) -> bool:
     current_consulting = any(firm in company for firm in constants.CONSULTING_FIRMS)
     return current_consulting and (
         has_weak_core_ir_evidence(cand)
-        or cand.get("product_builder_score", 1.0) < W["soft_penalties.current_consulting_product_builder_threshold"]
+        or (
+            cand.get("product_builder_score", 1.0) < W["soft_penalties.current_consulting_product_builder_threshold"]
+            and cand.get("career_ir_density", 1.0) < W["soft_penalties.career_ir_density_threshold"]
+        )
     )
 
 
@@ -56,8 +59,12 @@ def has_long_notice_weak_eval(cand: dict) -> bool:
     notice_days = cand.get("beh_notice_period_days")
     if notice_days is None:
         return False
+    try:
+        notice_days = float(notice_days)
+    except (TypeError, ValueError):
+        return False
     return (
-        notice_days > W["behavioral.notice_moderate_days"]
+        notice_days >= W["behavioral.notice_moderate_days"]
         and cand.get("eval_framework", 0.0) < W["soft_penalties.weak_ir_eval_threshold"]
     )
 
@@ -78,6 +85,32 @@ def yoe_floor_modifier(cand: dict) -> float:
     return 1.0
 
 
+def _is_preferred_or_welcome_location(cand: dict) -> bool:
+    location = (cand.get("beh_location") or "").lower()
+    return any(city in location for city in PREFERRED_CITIES | WELCOME_CITIES)
+
+
+def _outside_preferred_no_reloc(cand: dict) -> bool:
+    country = (cand.get("beh_country") or "").lower()
+    if not country:
+        return False
+    if country != "india":
+        return not cand.get("beh_willing_to_relocate", False)
+    return (
+        not _is_preferred_or_welcome_location(cand)
+        and not cand.get("beh_willing_to_relocate", False)
+    )
+
+
+def has_bad_logistics_combo(cand: dict) -> bool:
+    notice_days = cand.get("beh_notice_period_days")
+    try:
+        notice_bad = notice_days is not None and float(notice_days) > W["behavioral.notice_moderate_days"]
+    except (TypeError, ValueError):
+        notice_bad = False
+    return notice_bad and _outside_preferred_no_reloc(cand)
+
+
 def reachability_multiplier(cand: dict, reference_date: date) -> float:
     mult = 1.0
 
@@ -92,10 +125,17 @@ def reachability_multiplier(cand: dict, reference_date: date) -> float:
         except ValueError:
             pass
 
-    if cand.get("beh_open_to_work") is False:
+    try:
+        response_rate = float(cand.get("beh_recruiter_response_rate", 1.0))
+    except (TypeError, ValueError):
+        response_rate = 1.0
+    if (
+        cand.get("beh_open_to_work") is False
+        and response_rate < W["behavioral.passive_response_skip_threshold"]
+    ):
         mult *= W["behavioral.not_open_mult"]
 
-    if cand.get("beh_recruiter_response_rate", 1.0) < W["behavioral.low_response_rate_threshold"]:
+    if response_rate < W["behavioral.low_response_rate_threshold"]:
         mult *= W["behavioral.low_response_mult"]
 
     return mult
@@ -215,6 +255,18 @@ def soft_penalties(cand: dict) -> float:
     if has_long_notice_weak_eval(cand):
         multiplier *= W["soft_penalties.long_notice_weak_eval_mult"]
 
+    if _outside_preferred_no_reloc(cand):
+        multiplier *= W["soft_penalties.no_reloc_outside_preferred_mult"]
+
+    if has_bad_logistics_combo(cand):
+        multiplier *= W["soft_penalties.bad_logistics_combo_mult"]
+
+    if cand.get("isolated_template_risk", False):
+        multiplier *= W["soft_penalties.isolated_template_risk_mult"]
+
+    if cand.get("career_ir_density", 1.0) < W["soft_penalties.career_ir_density_threshold"]:
+        multiplier *= W["soft_penalties.low_career_ir_density_mult"]
+
     multiplier *= yoe_floor_modifier(cand)
 
     return multiplier
@@ -230,6 +282,8 @@ def has_floor_exempt_penalty(cand: dict) -> bool:
         or ("keyword_stuffer_penalty" in FLOOR_EXEMPT_MULTIPLIERS and cand.get("keyword_stuffer_flag", False))
         or has_adjacent_domain_weak_ir(cand)
         or has_current_consulting_weak_ir(cand)
+        or has_bad_logistics_combo(cand)
+        or cand.get("isolated_template_risk", False)
     )
 
 

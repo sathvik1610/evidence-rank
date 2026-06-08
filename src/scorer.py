@@ -92,7 +92,28 @@ def compute_core_score(features: Dict[str, Any]) -> float:
         W["scoring.product_builder_weight"] * product_builder_score
     ) * 100.0
 
-    return float(core_score)
+    career_ir_density = features.get("career_ir_density", 0.5)
+    if (
+        features.get("retrieval_search", 0.0) >= 2.0
+        and features.get("ltr_reranking", 0.0) >= 3.0
+        and features.get("eval_framework", 0.0) >= 2.0
+    ):
+        core_score += W["scoring.eval_trifecta_bonus"]
+    elif (
+        features.get("retrieval_search", 0.0) >= 2.0
+        and features.get("eval_framework", 0.0) >= 2.0
+    ):
+        core_score += W["scoring.eval_retrieval_bonus"]
+
+    if career_ir_density >= W["scoring.career_ir_density_bonus_threshold"]:
+        core_score += W["scoring.career_ir_density_bonus"]
+    elif career_ir_density < W["scoring.low_career_ir_density_threshold"]:
+        core_score *= W["scoring.low_career_ir_density_mult"]
+
+    if features.get("isolated_template_risk", False):
+        core_score *= W["scoring.isolated_template_risk_mult"]
+
+    return float(min(core_score, 100.0))
 
 
 def score_candidates_vectorized(df) -> object:
@@ -102,6 +123,9 @@ def score_candidates_vectorized(df) -> object:
     All weights sourced from W (weights.yaml).
     """
     import polars as pl
+
+    def col_or_lit(name: str, default):
+        return pl.col(name) if name in df.columns else pl.lit(default)
 
     # Must Have Raw
     must_have_raw = (
@@ -174,5 +198,36 @@ def score_candidates_vectorized(df) -> object:
         W["scoring.career_quality_weight"]  * career_quality_score +
         W["scoring.product_builder_weight"] * product_builder_score
     ) * 100.0
+
+    career_ir_density = col_or_lit("career_ir_density", 0.5)
+    isolated_template_risk = col_or_lit("isolated_template_risk", False)
+    trifecta = (
+        (pl.col("retrieval_search") >= 2.0) &
+        (pl.col("ltr_reranking") >= 3.0) &
+        (pl.col("eval_framework") >= 2.0)
+    )
+    retrieval_eval = (
+        (pl.col("retrieval_search") >= 2.0) &
+        (pl.col("eval_framework") >= 2.0)
+    )
+
+    core_score = (
+        core_score
+        + pl.when(trifecta)
+            .then(pl.lit(W["scoring.eval_trifecta_bonus"]))
+            .when(retrieval_eval)
+            .then(pl.lit(W["scoring.eval_retrieval_bonus"]))
+            .otherwise(pl.lit(0.0))
+        + pl.when(career_ir_density >= W["scoring.career_ir_density_bonus_threshold"])
+            .then(pl.lit(W["scoring.career_ir_density_bonus"]))
+            .otherwise(pl.lit(0.0))
+    )
+    core_score = pl.when(career_ir_density < W["scoring.low_career_ir_density_threshold"]).then(
+        core_score * W["scoring.low_career_ir_density_mult"]
+    ).otherwise(core_score)
+    core_score = pl.when(isolated_template_risk == True).then(
+        core_score * W["scoring.isolated_template_risk_mult"]
+    ).otherwise(core_score)
+    core_score = core_score.clip(upper_bound=100.0)
 
     return df.with_columns(core_score.alias("core_score"))
