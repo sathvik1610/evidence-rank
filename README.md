@@ -11,10 +11,29 @@ This repository ranks the best 100 candidates for the Redrob Senior AI Engineer 
 ```bash
 git clone https://github.com/sathvik1610/evidence-rank.git
 cd evidence-rank
+```
+
+Use Python 3.11 or 3.12. Do not use Python 3.13 for this project because several pinned scientific packages and FAISS/offline dependencies may not have compatible wheels yet.
+
+Windows PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If artifacts are stored through Git LFS:
+macOS/Linux:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+If artifacts are stored through Git LFS, pull them after cloning:
 
 ```bash
 git lfs install
@@ -38,6 +57,12 @@ Run tests:
 
 ```bash
 python -m pytest tests -q
+```
+
+Only install the full offline/model stack if you need to rebuild preprocessing artifacts:
+
+```bash
+pip install -r requirements-offline.txt
 ```
 
 ## Current Submission Metrics
@@ -311,6 +336,7 @@ evidence-rank/
 |-- weights.yaml                    # Tunable scoring weights and thresholds
 |-- validate_submission.py          # CSV format validator
 |-- requirements.txt
+|-- requirements-offline.txt
 |-- job_description.txt
 |-- candidates.jsonl                # Official dataset, placed locally
 |-- team_BuriBuri.csv               # Generated final submission
@@ -344,6 +370,12 @@ Final competition path. Loads precomputed artifacts, scores candidates, applies 
 `preprocess.py`
 
 Offline artifact builder. Creates JD query vectors, candidate embeddings, sparse/BM25/FAISS indexes, flags, retrieval scores, feature parquet, and cross-encoder scores.
+
+Requires the optional offline dependency file:
+
+```bash
+pip install -r requirements-offline.txt
+```
 
 `metadata/JD_contract.yaml`
 

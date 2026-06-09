@@ -1,0 +1,14 @@
+# requirements-offline.txt — optional offline preprocessing dependencies
+#
+# Install only if you need to rebuild embeddings, FAISS/BM25/sparse indexes,
+# or cross-encoder scores with preprocess.py.
+#
+# Recommended environment: Python 3.11 or 3.12.
+
+-r requirements.txt
+
+flagembedding==1.2.5
+faiss-cpu==1.8.0
+torch>=2.0.0,<2.4.0
+sentence-transformers>=2.6.0,<3.0.0
+gradio==4.36.1

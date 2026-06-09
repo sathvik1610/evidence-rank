@@ -34,7 +34,7 @@ compute:
   platform: "Windows local verification"
   cpu_cores: 8
   ram_gb: 16
-  python_version: "3.12"
+  python_version: "3.11/3.12 supported; Python 3.13 not recommended"
   os: "Windows"
   uses_gpu_for_inference: false
   has_network_during_ranking: false

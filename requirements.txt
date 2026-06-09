@@ -1,40 +1,21 @@
-# ---------------------------------------------------------------------------
-# requirements.txt — Evidence Rank
+# requirements.txt — Evidence Rank runtime dependencies
 #
-# Structured in three layers:
-#   [A] Offline only (preprocess.py) — NOT imported by rank.py
-#   [B] Runtime only (rank.py + src/) — must satisfy 5-min CPU constraint
-#   [C] Demo / Sandbox (app.py)
+# Use Python 3.11 or 3.12 in a virtual environment.
+# Do not use Python 3.13 for this project: several pinned scientific packages
+# and FAISS/offline dependencies may not have compatible wheels.
 #
-# Install all for development. Production ranking needs layer B only.
-# ---------------------------------------------------------------------------
+# This file is enough to reproduce the final submission with rank.py when the
+# precomputed artifacts in artifacts/ are present.
+#
+# For full preprocessing / artifact rebuilds, install requirements-offline.txt
+# after this file.
 
-# ---------------------------------------------------------------------------
-# [A] Offline precomputation — preprocess.py only
-# ---------------------------------------------------------------------------
-flagembedding==1.2.5
-faiss-cpu==1.8.0
-torch>=2.0.0
-sentence-transformers>=2.6.0
-
-# ---------------------------------------------------------------------------
-# [B] Runtime — rank.py and src/ modules
-# ---------------------------------------------------------------------------
 numpy==1.26.4
 pandas==2.2.2
 pyarrow==16.1.0
 scipy==1.13.0
 rank-bm25==0.2.2
-pyyaml>=6.0.1
-polars>=0.20.0
-
-# ---------------------------------------------------------------------------
-# [C] Demo sandbox — app.py (HuggingFace Spaces / Gradio)
-# ---------------------------------------------------------------------------
-gradio==4.36.1
-
-# ---------------------------------------------------------------------------
-# [D] Development & Testing
-# ---------------------------------------------------------------------------
-pytest>=8.0.0
+pyyaml==6.0.1
+polars==0.20.31
+pytest==8.2.2
 
