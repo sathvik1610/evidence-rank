@@ -13,7 +13,11 @@
 
 [1. Problem Understanding & Design Philosophy](./common_architecture.md)  
 [2. System Architecture Overview](./common_architecture.md)  
-[2b. Execution Model](./common_architecture.md)  
+[2a. Current Architecture Guide](../ARCHITECTURE.md)  
+[2b. Judge Guide](../JUDGE_GUIDE.md)  
+[2c. Data And Artifacts](../DATA_AND_ARTIFACTS.md)  
+[2d. Reproducibility Guide](../../REPRODUCIBILITY.md)  
+[2e. Execution Model](./common_architecture.md)  
 [3. Repository Layout](./common_architecture.md)  
 [4. Phase 0 — JD Intelligence](./phase_0_jd_intelligence.md)  
 [5. Phase 1 — Corpus Preprocessing + Honeypot Detection](./phase_1_corpus_preprocessing.md)  

@@ -118,14 +118,14 @@ import polars as pl
 
 reranker = FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=False)
 
-# top_5000_candidates: list of dicts with candidate_id and profile_text
-# (from the Phase 1d RRF output pool)
-pairs = [[JD_SKILLS_TEXT.strip(), c["profile_text"]] for c in top_5000_candidates]
+# retrieval_pool_candidates: list of dicts with candidate_id and profile_text
+# from the Phase 1d RRF output pool
+pairs = [[JD_SKILLS_TEXT.strip(), c["profile_text"]] for c in retrieval_pool_candidates]
 cross_enc_scores = reranker.compute_score(pairs, normalize=True)
 scaled_ce_scores = [score * 100.0 for score in cross_enc_scores]
 
 ce_df = pl.DataFrame({
-    "candidate_id": [c["candidate_id"] for c in top_5000_candidates],
+    "candidate_id": [c["candidate_id"] for c in retrieval_pool_candidates],
     "cross_encoder_score": scaled_ce_scores
 })
 ce_df.write_parquet("artifacts/cross_encoder_scores.parquet")
@@ -152,22 +152,16 @@ scored_df["final_phase4_score"] = (
 )
 ```
 
-### 8.3 Alternative Architecture: LLM-based Reranking
+### 8.3 Final Decision: No Runtime LLM Reranking
 
-If deeper reasoning is required beyond the precomputed `bge-reranker-v2-m3` cross-encoder, a fine-tuned or prompted LLM can replace the cross-encoder to capture the gap between what the JD says and what it means.
+The final architecture does **not** use a runtime or generative LLM reranker. This was a deliberate engineering decision:
 
-#### Pipeline Flow with LLM Reranking
-1. **[Phase 2: BM25 + FAISS + exact recall retrieval]** → widened candidate pool (fast, offline)
-2. **[Phase 3: Rule-based feature extraction]** → feature vectors (fast, CPU)
-3. **[Phase 4a: Core formula scoring]** → top 300 candidates
-4. **[Phase 4b: LLM rerank]** → LLM reads JD + candidate profile → produces a 0-10 fit score → top 100 candidates (LLM runs **only** on the 300 profiles)
-5. **[Phase 5: Behavioral multipliers]** → final ranking
+- The submission spec forbids hosted model calls during ranking.
+- Local LLM inference would add dependency, reproducibility, and runtime risk.
+- Generative reasoning increases hallucination risk in the `reasoning` column.
+- The current system already uses a safer semantic reranker: `bge-reranker-v2-m3`, computed offline and merged at rank time from parquet.
 
-#### Feasibility and Constraints
-- **Execution Time:** Gemma 2B / Llama 3.1 8B (quantized GGUF) can process ~300 short candidate profiles in 2-3 minutes on CPU at 4-bit quantization. Since we are not running it on the full 100K corpus but only the pre-filtered top 300, it stays well within the 5-minute limit.
-- **Contextual Reasoning:** The LLM prompt includes the `JD_contract.yaml` logic as context, so it reasons about the specific intent, not just raw keywords.
-- **Implementation:** Use a 1B-3B model (e.g., Phi-3.5 Mini or Gemma 2B) fine-tuned or prompted to output a structured JSON score + 1-sentence reason, running inference over 300 candidate summaries. This is better than the current generic cross-encoder because it can reason about career arc, context, and semantic alignment.
-- **Strategic Value:** The hackathon scoring is 50% NDCG@10. An LLM making nuanced judgments on the top 300 will materially improve the top 10, whereas the rule-based system alone will plateau.
+If future work needs deeper semantic judgment, it should first improve the deterministic evidence selection and offline cross-encoder coverage. The competition submission path should remain artifact-driven, CPU-only, and reproducible.
 
 ---
 

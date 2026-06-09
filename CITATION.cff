@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite it as a Redrob Hackathon Team BuriBuri submission."
+title: "Evidence Rank"
+type: software
+authors:
+  - family-names: "Pilyanam"
+    given-names: "Sathvik"
+  - family-names: "Mandadi"
+    given-names: "Pranathi"
+repository-code: "https://github.com/sathvik1610/evidence-rank"
+date-released: "2026-06-09"
+license: "MIT"
+keywords:
+  - candidate-ranking
+  - information-retrieval
+  - recommender-systems
+  - retrieval
+  - ranking
+  - hackathon

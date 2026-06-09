@@ -4,92 +4,244 @@ Redrob Hackathon submission for the Intelligent Candidate Discovery and Ranking 
 
 Team BuriBuri: Sathvik Pilyanam, Pranathi Mandadi
 
-The system ranks the best 100 candidates for the Redrob Senior AI Engineer role. It uses expensive offline preprocessing once, then runs the final competition ranking step quickly on CPU using precomputed artifacts.
+This repository ranks the best 100 candidates for the Redrob Senior AI Engineer JD. The system is built as a two-stage retrieval and ranking engine: expensive embedding/index work is precomputed once, while the final `rank.py` submission path is CPU-only, deterministic, and fast.
 
-## Main Run Commands
-
-### Clone And Set Up
+## Quick Start
 
 ```bash
 git clone https://github.com/sathvik1610/evidence-rank.git
 cd evidence-rank
-
 pip install -r requirements.txt
 ```
 
-If the repository is stored with Git LFS artifacts, pull them after cloning:
+If artifacts are stored through Git LFS:
 
 ```bash
 git lfs install
 git lfs pull
 ```
 
-Place the official dataset at the repository root:
+Place the official candidate file at the repository root:
 
 ```text
 candidates.jsonl
 ```
 
-### Generate Final Submission
-
-Use this command for the normal competition run. It does not rebuild embeddings; it uses the already precomputed artifacts in `artifacts/`.
+Generate and validate the final submission:
 
 ```bash
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
 
-Expected behavior:
-
-- Output file: `team_BuriBuri.csv`
-- Required columns: `candidate_id,rank,score,reasoning`
-- Runtime: about 2-3 seconds locally with the current artifacts
-- Ranking step: CPU only, no network calls, no embedding model loaded
-
-### Run Tests
+Run tests:
 
 ```bash
 python -m pytest tests -q
 ```
 
-Useful focused checks:
+## Current Submission Metrics
 
-```bash
-python -m pytest tests/test_features.py tests/test_scorer.py tests/test_behavioral.py tests/test_explainer.py -q
-python -m py_compile preprocess.py rank.py src/features.py src/scorer.py src/behavioral.py src/explainer.py
+These are local verification metrics for the current generated `team_BuriBuri.csv`.
+
+| Metric | Current value |
+|---|---:|
+| Output rows | 100 |
+| Required columns | `candidate_id,rank,score,reasoning` |
+| Runtime for `rank.py` | about 2.1 seconds |
+| Ranking constraint | CPU only, no network, no GPU |
+| Submission validator | Pass |
+| Reasoning factuality audit | 100 rows checked, 0 errors, 0 warnings |
+| Full test suite | 94 passed |
+| Top score | 95.86758 |
+| Rank-100 score | 51.063791 |
+| Mean score | 66.1263 |
+| Median score | 64.9965 |
+| Rank 1 | `CAND_0018499` |
+| Rank 10 | `CAND_0061257` |
+| Rank 50 | `CAND_0053695` |
+| Rank 100 | `CAND_0027801` |
+
+Competition scoring metrics from `Resources/submission_spec.txt`:
+
+| Hidden evaluation metric | Weight |
+|---|---:|
+| NDCG@10 | 0.50 |
+| NDCG@50 | 0.30 |
+| MAP | 0.15 |
+| P@10 | 0.05 |
+
+Final composite:
+
+```text
+0.50 * NDCG@10 + 0.30 * NDCG@50 + 0.15 * MAP + 0.05 * P@10
 ```
 
-## Important Artifact Note
+The ranking therefore prioritizes top-10 quality first, then top-50 quality, while still keeping the entire top 100 reasonable and explainable.
 
-Most expensive work has already been calculated and stored in `artifacts/`.
+## What The System Optimizes For
 
-The final `rank.py` command depends on these precomputed files:
+The JD is not a generic LLM-engineer search. It asks for a founding-team Senior AI Engineer who can own ranking, retrieval, matching, and evaluation systems for a recruiting product.
 
-- `artifacts/candidate_features.parquet`
-- `artifacts/retrieval_scores.parquet`
-- `artifacts/cross_encoder_scores.parquet`
-- `artifacts/candidate_flags.parquet`
-- `artifacts/run_metadata.json`
+The engine favors candidates with:
 
-Do not expect `rank.py` to rebuild missing features or embeddings. If feature artifacts are stale or missing, run `preprocess.py` first.
+- production retrieval/search/recommendation/ranking ownership
+- embeddings, vector DB, hybrid retrieval, BM25, FAISS, Pinecone, OpenSearch, Elasticsearch, or similar systems
+- evaluation culture: NDCG, MRR, MAP, Recall@K, A/B testing, offline-to-online calibration, human relevance judgments
+- product-company experience, product ML ownership, and shipped systems
+- strong Python and hands-on implementation evidence
+- reasonable reachability: notice period, response rate, location, relocation, and platform activity
+
+It downranks candidates with:
+
+- pure research without production deployment
+- LangChain/OpenAI-wrapper-only experience without deeper ML systems background
+- consulting-only careers with weak product ownership
+- wrong-domain expertise such as CV/speech/robotics without NLP/IR evidence
+- suspicious timelines, skill-duration overclaims, ghost profiles, or impossible profile structure
+- low technical depth or weak ranking/evaluation evidence in lower rank bands
+
+## Architecture Summary
+
+The system has two stages.
+
+### Stage A: Offline Preprocessing
+
+Entry point:
+
+```bash
+python preprocess.py --candidates ./candidates.jsonl
+```
+
+Purpose:
+
+- build JD query artifacts from `job_description.txt` and `metadata/JD_contract.yaml`
+- encode candidates with `BAAI/bge-m3`
+- build dense FAISS, learned-sparse CSR, and BM25 indexes
+- run honeypot, ghost, contradiction, and trust checks directly on JSON fields
+- create high-recall retrieval scores using RRF
+- extract JD-specific features and evidence snippets
+- run `BAAI/bge-reranker-v2-m3` cross-encoder offline
+- save all reusable artifacts under `artifacts/`
+
+This stage can take much longer and can use GPU. It is not the final evaluated ranking path.
+
+### Stage B: Runtime Ranking
+
+Entry point:
+
+```bash
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+```
+
+Purpose:
+
+- load precomputed features and retrieval scores
+- filter to candidate IDs in the input file
+- slice the retrieval pool using `weights.yaml`
+- compute core score with `src/scorer.py`
+- blend precomputed cross-encoder score with handcrafted score
+- apply behavioral modifiers and trust penalties with `src/behavioral.py`
+- assign deterministic ranks
+- generate factual reasoning with `src/explainer.py`
+- write `team_BuriBuri.csv` and `artifacts/ranking_debug.csv`
+
+This stage is CPU-only, uses no network calls, and does not load torch, FAISS, FlagEmbedding, or sentence-transformer models.
+
+For the deeper system walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Main Methods Used
+
+| Method | Where used | Why it exists |
+|---|---|---|
+| BGE-M3 dense embeddings | Phase 0/1 preprocessing | Semantic recall for JD/candidate matching |
+| BGE-M3 learned sparse vectors | Phase 0/1 preprocessing | Sparse neural lexical matching without runtime model inference |
+| FAISS `IndexFlatIP` | Phase 1 preprocessing | Fast dense nearest-neighbor search over normalized candidate vectors |
+| BM25 | Phase 1/2 preprocessing | Exact lexical anchor for terms like BM25, FAISS, Pinecone, NDCG, MRR |
+| Exact/regex recall lane | Phase 2 preprocessing | Conservative rescue path for high-signal JD terms and career evidence |
+| Reciprocal Rank Fusion | Phase 2 preprocessing | Combines dense, sparse, BM25, and exact recall into one high-recall pool |
+| Rule-based feature extraction | Phase 3 preprocessing | Converts raw JSON into JD-specific scoring features and factual snippets |
+| Honeypot/trust checks | Phase 1f preprocessing | Detects impossible timelines, ghosts, overclaims, and suspicious profiles |
+| Handcrafted scoring | Phase 4 runtime | Interpretable JD-specific score based on must-haves, career quality, and product ownership |
+| Cross-encoder merge | Phase 4 runtime from offline scores | Improves semantic ordering without runtime model inference |
+| Behavioral modifiers | Phase 5 runtime | Applies reachability, notice, location, activity, and trust penalties late |
+| Deterministic reasoning | Phase 6 runtime | Generates factual 1-2 sentence explanations without LLM hallucination risk |
+
+## Scoring Weights
+
+Core technical score in `src/scorer.py` is controlled by `weights.yaml`:
+
+| Core bucket | Weight |
+|---|---:|
+| Must-have evidence | 0.55 |
+| Nice-to-have evidence | 0.05 |
+| Career quality | 0.15 |
+| Product-builder score | 0.25 |
+
+Must-have sub-signals:
+
+| Sub-signal | Weight |
+|---|---:|
+| Retrieval/search | 0.22 |
+| Vector DB / hybrid search | 0.16 |
+| Recommendation/ranking systems | 0.20 |
+| Evaluation framework | 0.17 |
+| Python engineering | 0.05 |
+
+Cross-encoder blend:
+
+| Phase 4 component | Weight |
+|---|---:|
+| Handcrafted core score | 0.65 |
+| Precomputed cross-encoder score | 0.35 |
+
+Behavioral and penalty values are also in `weights.yaml`, including notice period, response rate, location, relocation, ghost/honeypot, social proof, contradiction, and low-density evidence penalties.
+
+## Artifact Guide
+
+`rank.py` expects precomputed artifacts. It does not rebuild missing embeddings or indexes.
+
+Important current artifacts:
+
+| Artifact | Purpose | Approx size |
+|---|---|---:|
+| `artifacts/candidate_features.parquet` | Feature table consumed by `rank.py` | 0.53 MB |
+| `artifacts/retrieval_scores.parquet` | RRF retrieval scores | 0.20 MB |
+| `artifacts/cross_encoder_scores.parquet` | Offline cross-encoder scores | 0.11 MB |
+| `artifacts/candidate_flags.parquet` | Honeypot, ghost, contradiction, trust flags | 0.84 MB |
+| `artifacts/faiss_index.bin` | Dense vector index | 390.63 MB |
+| `artifacts/candidate_sparse_matrix.npz` | Learned-sparse candidate matrix | 61.03 MB |
+| `artifacts/bm25_index.pkl` | BM25 index | 189.12 MB |
+| `artifacts/candidate_texts.pkl` | Serialized candidate text | 187.27 MB |
+| `artifacts/candidate_ids.json` | Candidate ID order for indexes | 1.53 MB |
+
+`artifacts/run_metadata.json` currently records:
+
+```text
+candidate_count: 100000
+reference_date: 2026-05-27
+skip_embed: true
+```
 
 ## When To Recalculate Preprocessing
 
-Use this table before changing code. It explains what must be recalculated.
+Most expensive work is already calculated. Use this table before changing code.
 
-| Change made | Command to run |
+| Change made | Required action |
 |---|---|
-| Only `weights.yaml` changed | `python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv` |
-| `src/scorer.py`, `src/behavioral.py`, or `src/explainer.py` changed | `python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv` |
-| `src/features.py` changed | `python preprocess.py --candidates ./candidates.jsonl --skip-embed`, then `rank.py` |
-| Honeypot, contradiction, ghost, or exact recall logic in `preprocess.py` changed | `python preprocess.py --candidates ./candidates.jsonl --skip-embed`, then `rank.py` |
-| `metadata/JD_contract.yaml` changed for feature patterns, penalties, city policy, or exact recall terms | `python preprocess.py --candidates ./candidates.jsonl --skip-embed`, then `rank.py` |
-| Retrieval query text, embedding model, candidate data, FAISS/BM25/sparse index construction changed | Full `python preprocess.py --candidates ./candidates.jsonl`, then `rank.py` |
-| Cross-encoder scores need refresh for the current retrieval pool | `python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder`, then `rank.py` |
+| Only `weights.yaml` changed | Run `rank.py` only |
+| `src/scorer.py` changed | Run `rank.py` only |
+| `src/behavioral.py` changed | Run `rank.py` only |
+| `src/explainer.py` changed | Run `rank.py` only |
+| Reasoning wording/templates changed | Run `rank.py` only |
+| `src/features.py` changed | Run `preprocess.py --skip-embed`, then `rank.py` |
+| Honeypot, ghost, contradiction, exact recall, or feature extraction logic changed in `preprocess.py` | Run `preprocess.py --skip-embed`, then `rank.py` |
+| `metadata/JD_contract.yaml` changed for extraction patterns, feature terms, location policy, or exact recall | Run `preprocess.py --skip-embed`, then `rank.py` |
+| Candidate dataset changed | Run full `preprocess.py`, then `rank.py` |
+| Embedding model, dense/sparse JD query text, FAISS, BM25, sparse matrix, or index construction changed | Run full `preprocess.py`, then `rank.py` |
+| Cross-encoder scores need refresh for the current retrieval pool | Run `preprocess.py --only-cross-encoder`, then `rank.py` |
 
-### Lightweight Preprocess
-
-Use this after feature, honeypot, contradiction, exact recall, or JD-contract extraction changes. It reuses existing BGE-M3 embeddings, FAISS index, sparse matrix, and BM25 index.
+Lightweight preprocessing:
 
 ```bash
 python preprocess.py --candidates ./candidates.jsonl --skip-embed
@@ -97,9 +249,7 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
 
-### Full GPU Preprocess
-
-Use this only when candidate data, embedding model, dense/sparse JD query text, or index construction changed.
+Full preprocessing:
 
 ```bash
 python preprocess.py --candidates ./candidates.jsonl
@@ -107,11 +257,7 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
 
-Full preprocessing loads BGE-M3 and the cross-encoder. It is meant for GPU/Colab-style runs, not for the final CPU-only ranking step.
-
-### Cross-Encoder Refresh Only
-
-Use this when the retrieval pool already exists but semantic reranker scores should be regenerated.
+Cross-encoder refresh only:
 
 ```bash
 python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder
@@ -119,186 +265,48 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
 
-## Architecture Overview
+## Validation Checklist
 
-The project is split into two stages.
+Before submission:
 
-### Stage A: Offline Preprocessing
+```bash
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+python -m pytest tests -q
+```
 
-Entry point: `preprocess.py`
+The official CSV must satisfy:
 
-This stage can use GPU and can take longer than the final ranking limit. It reads the full candidate dataset and creates reusable artifacts.
+- exactly 100 data rows
+- header exactly `candidate_id,rank,score,reasoning`
+- each candidate ID exists in the released dataset
+- each rank from 1 to 100 appears exactly once
+- scores are non-increasing
+- score ties use deterministic ordering
+- UTF-8 CSV format
+- reasoning is factual, JD-connected, honest about concerns, varied enough, and rank-consistent
 
-Phases:
+## Integrity Declaration
 
-1. Phase 0 - JD Intelligence
-   - Reads `metadata/JD_contract.yaml` and `job_description.txt`.
-   - Builds structured JD config, BM25 keywords, three dense JD query vectors, and learned-sparse JD query vectors.
-   - Uses `BAAI/bge-m3`.
-   - Disables ColBERT vectors to avoid huge memory usage.
+`team_BuriBuri.csv` is generated by running `rank.py` over the official candidate file and precomputed artifacts. Candidate ordering, scores, and reasoning are produced by the implemented ranking engine using `weights.yaml`, JD-specific feature extraction, behavioral modifiers, trust checks, and deterministic explanation templates.
 
-2. Phase 1 - Corpus Preprocessing
-   - Serializes each candidate profile into searchable text.
-   - Builds dense BGE-M3 embeddings.
-   - Stores dense vectors in FAISS `IndexFlatIP`.
-   - Stores learned-sparse vectors in a SciPy CSR matrix.
-   - Builds a BM25 index over normalized candidate text.
-
-3. Phase 1f - Honeypot and Trust Checks
-   - Reads raw JSON fields directly.
-   - Flags impossible timelines, suspicious profiles, ghost profiles, consulting-only careers, research-only profiles, wrong-domain profiles, and skill-duration contradictions.
-   - Saves results to `artifacts/candidate_flags.parquet`.
-
-4. Phase 1d - Multi-Signal Retrieval
-   - Builds a high-recall candidate pool using Reciprocal Rank Fusion.
-   - Uses dense FAISS, learned-sparse BGE-M3, BM25, and exact/regex recall.
-   - Saves retrieval scores to `artifacts/retrieval_scores.parquet`.
-
-5. Phase 1c - Feature Extraction
-   - Extracts JD-specific feature columns using `src/features.py`.
-   - Uses YAML-driven patterns from `metadata/JD_contract.yaml`.
-   - Saves `artifacts/candidate_features.parquet`.
-
-6. Phase 1e - Cross-Encoder Scoring
-   - Scores the configured retrieval pool with `BAAI/bge-reranker-v2-m3`.
-   - Saves `artifacts/cross_encoder_scores.parquet`.
-
-### Stage B: Runtime Ranking
-
-Entry point: `rank.py`
-
-This is the final evaluated path. It must stay fast, CPU-only, and artifact-driven.
-
-Runtime flow:
-
-1. Reads candidate IDs from `--candidates`.
-2. Loads `artifacts/candidate_features.parquet`.
-3. Filters features to candidates present in the input file.
-4. Joins `artifacts/retrieval_scores.parquet` and keeps the runtime retrieval pool configured by `weights.yaml`.
-5. Computes Phase 4 core score with `src/scorer.py`.
-6. Merges precomputed cross-encoder scores with `src/reranker.py`.
-7. Keeps top 500 by Phase 4 blended score.
-8. Applies behavioral modifiers and penalties with `src/behavioral.py`.
-9. Assigns deterministic ranks by descending score, then candidate ID.
-10. Generates factual 1-2 sentence explanations with `src/explainer.py`.
-11. Writes the final CSV and debug trace.
-
-`rank.py` does not import `torch`, `faiss`, `FlagEmbedding`, or `sentence-transformers`. That is intentional.
-
-## Methods Used
-
-### BGE-M3 Dense Retrieval
-
-`BAAI/bge-m3` encodes candidate profile text and JD query text. Candidate dense vectors are L2-normalized and stored in FAISS. FAISS inner product search is then equivalent to cosine similarity.
-
-### BGE-M3 Learned-Sparse Retrieval
-
-BGE-M3 also returns lexical weights. These are stored as sparse CSR matrices. Sparse candidate vectors are compared with sparse JD query vectors using fast matrix dot products.
-
-### BM25 Retrieval
-
-BM25 is used as a lexical anchor. It helps recover candidates who use exact domain terms such as BM25, FAISS, Pinecone, ranking, retrieval, NDCG, or evaluation.
-
-### Exact/Regex Recall Lane
-
-The exact recall lane scans titles, summaries, career descriptions, and skills with JD-contract patterns. It is intentionally conservative:
-
-- career-description evidence is weighted more than skills-only evidence
-- at least one primary retrieval/ranking/recommendation/evaluation signal is required
-- ghost candidates are excluded from this lane
-
-### Reciprocal Rank Fusion
-
-Retrieval lists are fused with RRF using `retrieval.rrf_k` from `weights.yaml`. Preprocessing saves the widened top retrieval pool. Runtime slices it using `retrieval.runtime_top_k`.
-
-### Feature Extraction
-
-`src/features.py` converts candidate JSON into scoring features:
-
-- Bucket A: retrieval/search, vector DB, evaluation, LTR/reranking, Python, LLM/RAG, distributed systems, HR-tech exposure
-- Bucket B: product-company ratio, deployment language, shipper language, ownership, recency, depth, career IR density, isolated-template risk
-- Bucket C: title velocity, consulting risk, keyword stuffing, stopped-coding risk, LangChain-only risk, closed-source risk
-
-Feature extraction also copies profile facts and snippets into the feature parquet so the explainer can generate factual reasoning later.
-
-### Honeypot Detection
-
-Honeypot checks are rule-based and JSON-field based. They do not rely on embeddings. They look for:
-
-- end date before start date
-- negative role durations
-- impossible years of experience
-- skill durations wildly exceeding career timeline
-- copied long role descriptions across multiple employers
-- multiple current roles
-- suspiciously maxed behavioral signals
-- senior profiles with zero technical activity
-- target-domain skill-duration overclaims
-
-Hard impossible or suspicious profiles receive a severe score multiplier. Softer contradictions become trust penalties.
-
-### Core Scoring
-
-`src/scorer.py` computes a 0-100 technical score using weights from `weights.yaml`:
-
-- must-have evidence
-- nice-to-have evidence
-- career quality
-- product-builder score
-
-It also adds manual-audit corrections for retrieval + LTR + evaluation strength, sustained career IR density, and isolated-template risk.
-
-### Cross-Encoder Reranking
-
-`src/reranker.py` merges offline `BAAI/bge-reranker-v2-m3` scores with the handcrafted core score. Current blend comes from `weights.yaml`:
-
-- handcrafted score: 65%
-- cross-encoder score: 35%
-
-If a candidate has no cross-encoder score, runtime falls back to the handcrafted core score.
-
-### Behavioral Reranking
-
-`src/behavioral.py` applies late-stage modifiers for reachability and fit:
-
-- last active date
-- open-to-work flag
-- recruiter response rate
-- notice period
-- location and relocation
-- seniority
-- writing signal
-- social proof
-- GitHub activity
-- saved by recruiters
-- interview completion
-- offer acceptance
-- profile completeness
-- LinkedIn connection
-
-Behavioral signals are late modifiers, not primary retrieval signals. Strong technical candidates are not removed early only because they are passive.
-
-### Reason Generation
-
-`src/explainer.py` generates the `reasoning` column for the final CSV.
-
-Rules:
-
-- no LLM is used
-- no guessing
-- title, company, and years of experience come from profile fields
-- evidence snippets come from extracted candidate text snippets
-- skill-duration contradiction flags prevent blind duration claims
-- output is short, human-readable, and factual
+Nothing in the CSV is manually ranked, manually reordered, or manually written row by row. The reasoning column is also generated by the engine from extracted profile facts and evidence snippets; it is not produced by a hosted LLM and is not hand-tampered after generation.
 
 ## Repository Layout
 
 ```text
 evidence-rank/
 |-- README.md
-|-- rank.py                         # Stage B final ranking entry point
-|-- preprocess.py                   # Stage A offline artifact builder
-|-- app.py                          # Demo sandbox
+|-- LICENSE
+|-- CONTRIBUTING.md
+|-- SECURITY.md
+|-- CODE_OF_CONDUCT.md
+|-- CHANGELOG.md
+|-- CITATION.cff
+|-- REPRODUCIBILITY.md
+|-- rank.py                         # Final competition ranking entry point
+|-- preprocess.py                   # Offline artifact builder
+|-- app.py                          # Demo sandbox, not final ranking path
 |-- constants.py                    # Artifact paths, model IDs, structural constants
 |-- weights.yaml                    # Tunable scoring weights and thresholds
 |-- validate_submission.py          # CSV format validator
@@ -311,132 +319,96 @@ evidence-rank/
 |   `-- validation_set.json
 |-- src/
 |   |-- jd_intelligence.py          # Phase 0 JD query/config builder
-|   |-- features.py                 # Phase 1c feature extraction
+|   |-- features.py                 # Phase 3 feature extraction
 |   |-- scorer.py                   # Phase 4 core scoring
 |   |-- reranker.py                 # Cross-encoder score merge
-|   |-- behavioral.py               # Phase 5 modifiers and ranking
+|   |-- behavioral.py               # Phase 5 modifiers and penalties
 |   |-- explainer.py                # Phase 6 reasoning generation
 |   `-- weights.py                  # weights.yaml loader
-|-- artifacts/
-|   |-- jd_v1_skills.npy
-|   |-- jd_hyde_recsys.npy
-|   |-- jd_hyde_eval.npy
-|   |-- jd_sparse_queries.npz
-|   |-- jd_keywords.json
-|   |-- jd_config.json
-|   |-- faiss_index.bin
-|   |-- candidate_ids.json
-|   |-- candidate_sparse_matrix.npz
-|   |-- candidate_texts.pkl
-|   |-- bm25_index.pkl
-|   |-- candidate_flags.parquet
-|   |-- retrieval_scores_base.parquet
-|   |-- retrieval_scores.parquet
-|   |-- candidate_features.parquet
-|   |-- cross_encoder_scores.parquet
-|   `-- run_metadata.json
+|-- artifacts/                      # Precomputed files used by rank.py
 |-- tests/
-`-- docs/
-    |-- plan/                       # Architecture explanation by phase
-    |-- reference/
-    `-- auditfiles/
+|-- docs/
+|   |-- ARCHITECTURE.md             # Clear architecture guide with Mermaid diagrams
+|   |-- plan/                       # Phase-by-phase implementation notes
+|   |-- reference/
+|   `-- auditfiles/
+`-- Resources/                      # Original hackathon resources and specs
 ```
 
 ## Key Files
 
 `rank.py`
 
-Final competition entry point. It loads precomputed features, applies scoring, behavioral modifiers, reasoning, and writes the CSV. It does not rebuild artifacts.
+Final competition path. Loads precomputed artifacts, scores candidates, applies behavioral modifiers, generates reasoning, writes the CSV, and writes a debug trace.
 
 `preprocess.py`
 
-Offline artifact builder. It creates JD query vectors, candidate embeddings, FAISS/BM25/sparse artifacts, honeypot flags, retrieval scores, feature parquet, and cross-encoder scores.
+Offline artifact builder. Creates JD query vectors, candidate embeddings, sparse/BM25/FAISS indexes, flags, retrieval scores, feature parquet, and cross-encoder scores.
 
 `metadata/JD_contract.yaml`
 
-The source of truth for JD-specific skill patterns, location policy, disqualifier terms, and feature contract inputs.
+Structured JD contract for feature patterns, disqualifiers, location policy, and exact recall terms.
 
 `weights.yaml`
 
-The source of truth for tunable numeric weights and thresholds. Many ranking changes can be made here without preprocessing again.
+Tunable numeric weights and thresholds. Many ranking changes can be tested by editing this file and rerunning `rank.py`.
 
-`constants.py`
+`src/explainer.py`
 
-The source of truth for file paths, model IDs, and structural constants. Do not hardcode artifact paths in pipeline code.
-
-`artifacts/`
-
-Precomputed files used by `rank.py`. These are already calculated for the current pipeline state. Recalculate them only when the table above says to.
-
-## Output Files
-
-`team_BuriBuri.csv`
-
-Final submission file. It contains:
-
-```text
-candidate_id,rank,score,reasoning
-```
-
-`artifacts/ranking_debug.csv`
-
-Debug-only output written by `rank.py`. It includes extra fields such as core score, cross-encoder score, final score, reasoning, and concern.
-
-## Submission Compliance
-
-The validator checks:
-
-- exactly 100 data rows
-- header is exactly `candidate_id,rank,score,reasoning`
-- candidate IDs use the required `CAND_XXXXXXX` format
-- ranks 1 through 100 appear exactly once
-- scores are non-increasing by rank
-- equal-score ties use candidate ID ascending order
-- file is UTF-8 CSV
-
-Run:
-
-```bash
-python validate_submission.py team_BuriBuri.csv
-```
+Deterministic reasoning generator. It uses extracted profile facts and snippets only. It does not call an LLM and does not invent skills, companies, or durations.
 
 ## Demo Sandbox
 
 `app.py` is a lightweight demo path. It is not the final competition ranking path.
 
-Run CLI demo:
+CLI demo:
 
 ```bash
 python app.py --candidates ./sample_candidates.json --out output.csv
 ```
 
-Run local UI:
+Local UI:
 
 ```bash
 python app.py
 ```
 
-Then open:
+Open:
 
 ```text
 http://localhost:7860
 ```
 
-The demo uses heuristic ranking and does not require the full artifact set.
-
 ## Documentation Map
 
-The detailed architecture docs live in `docs/plan/`:
+Start with these:
 
-- `docs/plan/common_index.md` - table of contents
-- `docs/plan/common_architecture.md` - problem framing, execution model, repository layout
-- `docs/plan/phase_0_jd_intelligence.md` - JD contract and BGE-M3 query generation
-- `docs/plan/phase_1_corpus_preprocessing.md` - embeddings, FAISS, BM25, honeypots
-- `docs/plan/phase_2_multi_signal_retrieval.md` - RRF retrieval and exact recall
-- `docs/plan/phase_3_feature_extraction.md` - feature buckets and snippets
-- `docs/plan/phase_4_core_scoring.md` - scoring and cross-encoder merge
-- `docs/plan/phase_5_behavioral_reranking.md` - behavioral modifiers and penalties
-- `docs/plan/phase_6_reason_generation.md` - factual explanation generation
-- `docs/plan/phase_7_validation_and_references.md` - validation and references
+- [docs/JUDGE_GUIDE.md](docs/JUDGE_GUIDE.md) - fastest reviewer path: what to run, what to inspect, and how to understand the submission
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - clear architecture explanation with Mermaid diagrams and stage-by-stage flow
+- [REPRODUCIBILITY.md](REPRODUCIBILITY.md) - exact reproduction commands and when artifacts must be rebuilt
+- [docs/DATA_AND_ARTIFACTS.md](docs/DATA_AND_ARTIFACTS.md) - what data/artifacts exist, what generated them, and what `rank.py` consumes
 
-Use this README for running the project. Use `docs/plan/` when you need to explain the architecture in detail.
+Project governance and metadata:
+
+- [LICENSE](LICENSE) - repository license for original code/docs
+- [CONTRIBUTING.md](CONTRIBUTING.md) - development workflow and change checklist
+- [SECURITY.md](SECURITY.md) - security and private-reporting policy
+- [CHANGELOG.md](CHANGELOG.md) - project change history
+- [CITATION.cff](CITATION.cff) - citation metadata
+
+Detailed implementation references:
+
+- [docs/plan/common_index.md](docs/plan/common_index.md) - phase documentation index
+- [docs/plan/common_architecture.md](docs/plan/common_architecture.md) - longer implementation notes
+- [docs/plan/phase_0_jd_intelligence.md](docs/plan/phase_0_jd_intelligence.md) - JD contract and query generation
+- [docs/plan/phase_1_corpus_preprocessing.md](docs/plan/phase_1_corpus_preprocessing.md) - embeddings, FAISS, BM25, honeypots
+- [docs/plan/phase_2_multi_signal_retrieval.md](docs/plan/phase_2_multi_signal_retrieval.md) - RRF retrieval and exact recall
+- [docs/plan/phase_3_feature_extraction.md](docs/plan/phase_3_feature_extraction.md) - feature buckets and snippets
+- [docs/plan/phase_4_core_scoring.md](docs/plan/phase_4_core_scoring.md) - scoring and cross-encoder merge
+- [docs/plan/phase_5_behavioral_reranking.md](docs/plan/phase_5_behavioral_reranking.md) - behavioral modifiers
+- [docs/plan/phase_6_reason_generation.md](docs/plan/phase_6_reason_generation.md) - factual reasoning generation
+- [docs/plan/phase_7_validation_and_references.md](docs/plan/phase_7_validation_and_references.md) - validation and references
+
+Audit/reference notes under `docs/auditfiles/` and `docs/reference/` are supporting history, not required reading for judges.
+
+Use this README to run and reproduce the project. Use `docs/ARCHITECTURE.md` to explain the system in interviews or manual review.

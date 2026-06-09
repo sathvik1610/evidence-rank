@@ -32,9 +32,9 @@ The lead sentence is based on the strongest domain:
 - score `> 0.0`: skills-list or weaker evidence.
 - score `0.0`: limited direct evidence.
 
-Support sentences mention a secondary capability for highly ranked candidates when the secondary signal is real. Otherwise they fall back to the JD's 90-day milestone framing. Support phrasing is varied deterministically by candidate id/rank to reduce repeated templates in Stage 4 review.
+Support sentences mention a secondary capability for highly ranked candidates when the secondary signal is real. Support phrasing is varied deterministically by candidate id/rank to reduce repeated templates in Stage 4 review without introducing generative hallucination risk.
 
-When available and material, the second sentence includes quantified hiring signals such as `30-day notice` or `82% recruiter response`. Long notice periods and low response rates remain caveats rather than hidden penalties.
+When available and material, the second sentence includes quantified hiring signals such as `30-day notice` or `82% recruiter response`. Positive signals are phrased as hiring fit; long notice periods, low response rates, location friction, no relocation, and weaker evaluation evidence are phrased as natural caveats.
 
 Reasons should stay at 1-2 sentences. The first sentence starts with concrete profile facts and the primary evidence domain; the second sentence, when present, adds secondary JD alignment or a concern.
 
@@ -62,7 +62,15 @@ This is only explanatory framing. The 90-day score itself is computed in Phase 3
 - title velocity
 - no relocation outside preferred/welcome city bands
 
-For ranks above 30, present a concern when one exists. For ranks above 70, acknowledge technical-depth gaps even when no specific flag exists.
+For ranks above 25, present a concern when one exists. For ranks above 70, acknowledge technical-depth gaps even when no specific flag exists.
+
+Band-aware tone is deliberate:
+
+- ranks 1-10: excellent fit
+- ranks 11-25: strong fit
+- ranks 26-50: solid JD-aligned profile
+- ranks 51-75: relevant but partial fit
+- ranks 76-100: borderline or adjacent fit with clear limitations
 
 For top-ranked candidates with sustained `career_ir_density`, the support sentence may explicitly say the career pattern shows search/ranking/evaluation ownership. This is only emitted from extracted feature values; the explainer still does not infer or invent evidence.
 

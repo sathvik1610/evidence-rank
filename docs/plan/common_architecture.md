@@ -217,13 +217,13 @@ Retrieval lives in `preprocess.py`. At preprocess time: 6-way RRF (3 dense FAISS
 
 `src/features.py` — At preprocess time: YAML-contract-driven Bucket A/B/C extraction on all retrieved candidates → saves `candidate_features.parquet`. At rank time: loads parquet.
 
-`src/scorer.py` — Weighted formula: must-have (55%), nice-to-have (10%), career quality (15%), product builder (20%). Pure pandas/numpy; no model calls.
+`src/scorer.py` — Weighted formula from `weights.yaml`: must-have (55%), nice-to-have (5%), career quality (15%), product builder (25%). Pure pandas/numpy; no model calls.
 
 `src/reranker.py` — At preprocess time only: cross-encoder scoring using `bge-reranker-v2-m3` on the configured CE pool → saves `cross_encoder_scores.parquet`. At rank time: loads parquet, merges scores using `weights.yaml`.
 
 `src/behavioral.py` — Multiplicative modifiers: availability, notice, YAML-derived location bands, social proof, seniority, writing signal, soft penalties, floor-exempt disqualifier handling, and 90-day bonus.
 
-`src/explainer.py` — Reason generation with 90-day plan framing and evidence injection.
+`src/explainer.py` — Deterministic reason generation from profile facts and extracted evidence snippets. It does not call an LLM, guess facts, or invent skills/durations.
 
 ---
 

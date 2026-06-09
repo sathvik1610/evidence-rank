@@ -389,8 +389,8 @@ candidates.jsonl (100K profiles)
      │
      ▼
 [Phase 4: Core Scoring + CE Merge] ───────────────────────────────── RUNTIME
-     │  4-component formula: 55% must-have + 10% nice-to-have
-     │                      + 15% career quality + 20% product builder
+     │  4-component formula: 55% must-have + 5% nice-to-have
+     │                      + 15% career quality + 25% product builder
      │  Left-join cross_encoder_scores.parquet
      │  Final Phase4 = 0.80 × core + 0.20 × CE
      │  Narrow to top 200–300
@@ -849,7 +849,7 @@ final = 0.852 × 1.15 + 0.0797 + 0.03
 CAND_XXXXXXX,1,1.090,"7-year ML Engineer; evidence: 'dense retrieval pipeline using FAISS and sentence-transformers serving 500K'; suited for Weeks 4-8 hybrid ranker mandate. Strong availability: 30-day notice, 82% recruiter response rate."
 ```
 
-**Arjun ranks #1 (or near it).** He has maximum technical evidence (3/3 retrieval, 3/3 vector DB), near-perfect product builder score (0.993), perfect career quality (1.0), full seniority, ideal location, ideal availability, zero penalties, and full 90-day milestone coverage. The only gap is zero LTR/LLM evidence (nice-to-haves worth 10%), but his 55% must-have score and 20% product builder score are near-ceiling.
+**Arjun ranks #1 (or near it).** He has maximum technical evidence (3/3 retrieval, 3/3 vector DB), near-perfect product builder score (0.993), perfect career quality (1.0), full seniority, ideal location, ideal availability, zero penalties, and full 90-day milestone coverage. The only gap is zero LTR/LLM evidence (nice-to-haves worth 5%), but his 55% must-have score and 25% product builder score are near-ceiling.
 
 ---
 
