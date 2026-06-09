@@ -10,15 +10,38 @@ The final ranking path is designed for:
 - no network calls
 - no GPU requirement
 - 16 GB RAM target
-- Python with dependencies from `requirements.txt`
+- Python 3.11 or 3.12 with dependencies from `requirements.txt`
 
 Install dependencies:
 
-```bash
+Windows PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+macOS/Linux:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Do not use Python 3.13. It can force packages such as pandas or FAISS-related dependencies to build from source or fail to resolve.
+
 ## Required Local Files
+
+If artifacts are stored with Git LFS, run this after cloning:
+
+```bash
+git lfs install
+git lfs pull
+```
 
 The official candidate file must be present at the repository root:
 
@@ -78,6 +101,7 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 Use full preprocessing when the candidate dataset, embedding model, dense/sparse query text, or index construction changed:
 
 ```bash
+pip install -r requirements-offline.txt
 python preprocess.py --candidates ./candidates.jsonl
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 ```
@@ -85,6 +109,7 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 Use cross-encoder-only refresh when the retrieval pool is current but reranker scores need regeneration:
 
 ```bash
+pip install -r requirements-offline.txt
 python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 ```

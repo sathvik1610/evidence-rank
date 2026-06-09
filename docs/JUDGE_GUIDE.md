@@ -12,10 +12,17 @@ Team BuriBuri:
 ## What To Run
 
 ```bash
+git lfs install
+git lfs pull
+py -3.11 -m venv .venv
+.\.venv\Scripts\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
+
+Use Python 3.11 or 3.12. Python 3.13 is not recommended for this repo because some pinned scientific packages may not have compatible wheels.
 
 Optional tests:
 

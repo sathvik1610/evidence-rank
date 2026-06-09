@@ -44,6 +44,18 @@ python validate_submission.py team_BuriBuri.csv
 
 ## Artifact Inventory
 
+To reproduce the final CSV from existing artifacts, install only:
+
+```bash
+pip install -r requirements.txt
+```
+
+To rebuild model/index artifacts, install:
+
+```bash
+pip install -r requirements-offline.txt
+```
+
 | File | Built by | Used by | Purpose |
 |---|---|---|---|
 | `artifacts/jd_config.json` | `preprocess.py` | preprocessing/debug | Structured JD rule output |
