@@ -61,6 +61,7 @@ scoring:
 
   # JD-intent corrections from manual audit
   eval_trifecta_bonus: 7.0        # retrieval + strong LTR + eval ownership, additive points
+  eval_plan_coverage_bonus: 4.0   # retrieval + vector/hybrid + eval + LTR at project level
   eval_retrieval_bonus: 1.5       # retrieval + eval without full ranking trifecta
   career_ir_density_bonus: 2.0    # sustained IR/ranking/eval across career
   career_ir_density_bonus_threshold: 0.60
@@ -101,6 +102,7 @@ soft_penalties:
   long_notice_weak_eval_mult:       0.70  # >=90 day notice and no evaluation evidence
   bad_logistics_combo_mult:         0.50  # >90d notice plus no relocation outside preferred/welcome cities
   no_reloc_outside_preferred_mult:  0.82  # no relocation outside preferred/welcome cities
+  no_reloc_strong_fit_mult:         0.96  # evidence-rich India candidate, short notice, no relocation
   isolated_template_risk_mult:      0.76  # core IR appears isolated in an adjacent/chatbot/churn career
   low_career_ir_density_mult:       0.92  # weak majority career support for IR/ranking/eval
   weak_ir_retrieval_threshold:      2.0   # Below project-level retrieval evidence
@@ -171,6 +173,25 @@ behavioral:
 
   # Additive bonuses
   ninety_day_bonus_max: 5.0   # ninety_day_alignment (0-1) * this
+  reachable_elite_plan_bonus: 10.0  # strong full-plan fit, reachable, willing to relocate
+  reachable_elite_ce_threshold: 60.0
+  reachable_elite_phase4_max: 85.0
+  full_plan_band_score_min: 65.0  # only rescue strong review-band candidates
+  full_plan_band_score_max: 75.0
+  full_plan_band_phase4_max: 85.0
+  full_plan_band_ninety_min: 0.85
+  full_plan_band_reloc_bonus: 4.5
+  full_plan_band_reloc_response_min: 0.50
+  full_plan_band_reloc_ce_min: 80.0
+  full_plan_band_reloc_target_contradiction_max: 2
+  full_plan_band_no_reloc_short_bonus: 3.5
+  full_plan_band_no_reloc_short_response_min: 0.80
+  full_plan_band_no_reloc_short_ce_min: 60.0
+  full_plan_band_no_reloc_mild_bonus: 2.5
+  full_plan_band_no_reloc_mild_response_min: 0.70
+  full_plan_band_no_reloc_mild_ce_min: 70.0
+  full_plan_band_no_reloc_mild_career_eval_min: 0.80
+  full_plan_band_no_reloc_target_contradiction_max: 1
 
   # Floor for penalty_mult below which score is forced to 0.0
   penalty_floor_zero: 0.20

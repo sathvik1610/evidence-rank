@@ -73,7 +73,7 @@ methodology_summary: |
   repeated copied role descriptions, zero-duration expert claims) using only candidate data.
 
   Runtime: Parquet artifacts load in <5s. Weighted scoring formula (55% must-haves,
-  20% product-builder, 15% career quality, 10% nice-to-haves) produces a 0-100 core score.
+  25% product-builder, 15% career quality, 5% nice-to-haves) produces a 0-100 core score.
   Cross-encoder (35% weight) refines top candidates. Behavioral multipliers apply
   reachability, strict notice-period penalties, and location adjustments. Reason generator assembles
   evidence-grounded sentences from precomputed facts — no hallucinations.
@@ -87,3 +87,8 @@ declarations:
   no_collusion: true
   honeypot_check_done: true
   reproduction_tested: true
+  csv_generated_by_pipeline: true
+  no_manual_csv_tampering: true
+  reasoning_generated_by_engine: true
+  reasoning_not_hand_written_per_row: true
+  ranking_based_on_jd_features_and_weights: true
