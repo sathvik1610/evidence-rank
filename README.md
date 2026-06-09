@@ -56,7 +56,7 @@ git lfs install
 git lfs pull
 ```
 
-Place the official candidate file at the repository root:
+Place the official candidate file at the repository root ([Download dataset](https://drive.google.com/file/d/1DEXK9WEfDAj9hN_IY6FSh_Fu3Il1m0Xw/view?usp=sharing)):
 
 ```text
 candidates.jsonl
