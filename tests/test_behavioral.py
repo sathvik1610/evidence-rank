@@ -8,6 +8,8 @@ from src.behavioral import (
     has_floor_exempt_penalty, compute_final_score, assign_ranks,
     has_adjacent_domain_weak_ir, has_current_consulting_weak_ir,
     has_long_notice_weak_eval, yoe_floor_modifier, has_bad_logistics_combo,
+    has_short_notice_strong_plan_fit, has_reachable_elite_plan_fit,
+    full_plan_band_bonus,
 )
 from src.weights import W
 
@@ -202,6 +204,21 @@ def test_soft_penalties():
     assert has_bad_logistics_combo(cand_bad_logistics) is True
     assert soft_penalties(cand_bad_logistics) < W["soft_penalties.no_reloc_outside_preferred_mult"]
 
+    cand_short_notice_strong_fit = {
+        "beh_notice_period_days": 15,
+        "beh_location": "Indore",
+        "beh_country": "India",
+        "beh_willing_to_relocate": False,
+        "retrieval_search": 2.0,
+        "eval_framework": 2.0,
+        "ninety_day_alignment": 0.90,
+    }
+    assert has_short_notice_strong_plan_fit(cand_short_notice_strong_fit) is True
+    assert abs(
+        soft_penalties(cand_short_notice_strong_fit)
+        - W["soft_penalties.no_reloc_strong_fit_mult"]
+    ) < 1e-9
+
     # Keyword stuffer
     assert soft_penalties({"keyword_stuffer_flag": True}) < 1.0
 
@@ -250,6 +267,84 @@ def test_compute_final_score():
     score = compute_final_score(cand_normal, ref)
     assert score > 0.0
     assert score <= 120.0
+
+
+def test_reachable_elite_plan_bonus_is_narrow():
+    ref = date(2026, 6, 1)
+    base = {
+        "final_phase4_score": 70.0,
+        "retrieval_search": 2.0,
+        "vector_db_hybrid": 2.0,
+        "eval_framework": 2.0,
+        "ltr_reranking": 3.0,
+        "career_eval_density": 1.0,
+        "ninety_day_alignment": 0.95,
+        "beh_recruiter_response_rate": 0.86,
+        "beh_notice_period_days": 60,
+        "beh_willing_to_relocate": True,
+        "beh_location": "Chennai",
+        "beh_country": "India",
+        "ce_score": W["behavioral.reachable_elite_ce_threshold"],
+        "final_phase4_score": W["behavioral.reachable_elite_phase4_max"],
+        "writing_signal": 1.0,
+        "seniority_score": 1.0,
+        "target_skill_duration_contradiction": 1,
+    }
+    assert has_reachable_elite_plan_fit(base) is True
+    low_ce = dict(base)
+    low_ce["ce_score"] = W["behavioral.reachable_elite_ce_threshold"] - 0.1
+    assert has_reachable_elite_plan_fit(low_ce) is False
+    long_notice = dict(base)
+    long_notice["beh_notice_period_days"] = 90
+    assert has_reachable_elite_plan_fit(long_notice) is False
+    already_top = dict(base)
+    already_top["final_phase4_score"] = W["behavioral.reachable_elite_phase4_max"] + 0.1
+    assert has_reachable_elite_plan_fit(already_top) is False
+    assert compute_final_score(base, ref) > compute_final_score(low_ce, ref)
+
+
+def test_full_plan_band_bonus_is_bounded_to_review_band():
+    base = {
+        "final_phase4_score": 79.0,
+        "retrieval_search": 2.0,
+        "vector_db_hybrid": 2.0,
+        "eval_framework": 2.0,
+        "ltr_reranking": 3.0,
+        "ninety_day_alignment": 0.95,
+        "beh_recruiter_response_rate": 0.70,
+        "beh_notice_period_days": 30,
+        "beh_willing_to_relocate": True,
+        "beh_country": "India",
+        "ce_score": 82.0,
+        "target_skill_duration_contradiction": 2,
+    }
+    assert full_plan_band_bonus(base, 72.0) == W["behavioral.full_plan_band_reloc_bonus"]
+    assert full_plan_band_bonus(base, 80.0) == 0.0
+    weak_ce = dict(base)
+    weak_ce["ce_score"] = W["behavioral.full_plan_band_reloc_ce_min"] - 0.1
+    assert full_plan_band_bonus(weak_ce, 72.0) == 0.0
+
+
+def test_full_plan_band_bonus_requires_eval_density_for_mild_no_reloc():
+    base = {
+        "final_phase4_score": 82.0,
+        "retrieval_search": 2.0,
+        "vector_db_hybrid": 2.0,
+        "eval_framework": 2.0,
+        "ltr_reranking": 3.0,
+        "ninety_day_alignment": 0.95,
+        "beh_recruiter_response_rate": 0.80,
+        "beh_notice_period_days": 60,
+        "beh_willing_to_relocate": False,
+        "beh_country": "India",
+        "ce_score": 75.0,
+        "career_eval_density": 0.79,
+        "target_skill_duration_contradiction": 0,
+    }
+    assert full_plan_band_bonus(base, 72.0) == 0.0
+    base["career_eval_density"] = W["behavioral.full_plan_band_no_reloc_mild_career_eval_min"]
+    assert full_plan_band_bonus(base, 72.0) == W["behavioral.full_plan_band_no_reloc_mild_bonus"]
+
 
 def test_assign_ranks():
     cands = [

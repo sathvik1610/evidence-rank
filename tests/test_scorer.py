@@ -82,6 +82,28 @@ def test_compute_core_score_penalties():
     score_domain = compute_core_score(feat_domain)
     assert score_domain < score_clean
 
+
+def test_eval_plan_coverage_bonus_below_full_trifecta():
+    base_features = {
+        "retrieval_search": 2.0,
+        "vector_db_hybrid": 2.0,
+        "eval_framework": 2.0,
+        "ltr_reranking": 1.0,
+        "python_coding": 1.0,
+        "sys_experience_score": 0.5,
+        "llm_integration": 0.0,
+        "distributed_systems": 0.0,
+        "hr_tech_exposure": 0.0,
+        "experience_recency": 1.0,
+        "depth_signal": 1.0,
+        "product_builder_score": 0.8,
+    }
+    weaker = compute_core_score(base_features)
+    covered_features = base_features.copy()
+    covered_features["ltr_reranking"] = 2.0
+    covered = compute_core_score(covered_features)
+    assert covered > weaker
+
 def test_score_candidates_vectorized():
     """Verify that vectorized polars scoring matches compute_core_score row-by-row."""
     candidates_data = [

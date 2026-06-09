@@ -94,6 +94,67 @@ def test_realistic_strong_candidate():
     assert f_strong["seniority_score"] == 1.0
     assert f_strong["depth_signal"] == 1.0
 
+def test_jd_intent_evaluation_phrases_from_summary_and_roles():
+    cand = {
+        "candidate_id": "TEST_EVAL_INTENT",
+        "profile": {
+            "current_title": "Senior NLP Engineer",
+            "years_of_experience": 7.0,
+            "summary": (
+                "Owned the offline-online evaluation harness with NDCG/MRR/recall "
+                "calibrated to live A/B metrics for ranking quality."
+            ),
+        },
+        "career_history": [
+            {
+                "title": "Senior NLP Engineer",
+                "company": "ProductCo",
+                "duration_months": 36,
+                "description": (
+                    "Built an end-to-end ranking pipeline with BGE embeddings, Pinecone retrieval, "
+                    "XGBoost learning-to-rank, and behavioral-signal integration. The hardest part "
+                    "was building offline metrics that predicted what the recommendation would do "
+                    "to live engagement, validated through simulated A/B tests."
+                ),
+            }
+        ],
+        "skills": [],
+        "redrob_signals": {},
+        "education": [],
+    }
+    flags = {"product_ratio": 1.0, "consulting_only": False, "research_only": False, "wrong_domain": False}
+    features = extract_features(cand, flags)
+
+    assert features["retrieval_search"] >= 2.0
+    assert features["vector_db_hybrid"] >= 2.0
+    assert features["ltr_reranking"] >= 2.0
+    assert features["eval_framework"] >= 2.0
+    assert features["ninety_day_alignment"] > 0.8
+
+
+def test_skill_snippet_prefers_concrete_role_evidence_over_generic_summary():
+    candidate = {
+        "profile": {
+            "headline": "Strong background in NLP, recommendation systems, and applied AI.",
+            "summary": "Strong background in NLP, recommendation systems, and applied AI; comfortable across the stack.",
+        },
+        "career_history": [
+            {
+                "title": "Search Engineer",
+                "description": (
+                    "Built BM25 + dense retrieval with BGE embeddings and FAISS, "
+                    "then evaluated ranking quality using NDCG@10 and recall@K."
+                ),
+                "duration_months": 24,
+            }
+        ],
+        "skills": [],
+        "redrob_signals": {},
+    }
+    _, snippets = score_skill_bucket(candidate, _build_career_text(candidate))
+    assert "Strong background" not in snippets["retrieval_search"]
+    assert "BM25" in snippets["retrieval_search"] or "dense retrieval" in snippets["retrieval_search"]
+
 def test_consulting_only_candidate():
     """Pure consulting candidate."""
     consulting_cand = {

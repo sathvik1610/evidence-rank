@@ -2,7 +2,8 @@ import sys
 sys.path.insert(0, ".")
 import pytest
 from src.explainer import (
-    get_90day_milestone, get_largest_concern, _profile_prefix, generate_reasoning
+    get_90day_milestone, get_largest_concern, _profile_prefix, _trim_snippet,
+    generate_reasoning
 )
 
 def test_get_90day_milestone():
@@ -48,7 +49,8 @@ def test_generate_reasoning_strong():
     }
     reason = generate_reasoning(cand)
     assert "Search Engineer at FindMe with 6.0 years of experience" in reason
-    assert "Career text includes Retrieval Systems evidence" in reason
+    assert "Excellent JD fit" in reason
+    assert "and direct retrieval/search evidence" in reason
     assert "Designed hybrid dense-sparse vector search using Qdrant" in reason
 
 def test_generate_reasoning_weak():
@@ -61,6 +63,19 @@ def test_generate_reasoning_weak():
     reason = generate_reasoning(cand)
     assert "search" in reason.lower() or "retrieval" in reason.lower()
     assert "production depth" in reason or "scale evidence" in reason or "system details" in reason
+
+
+def test_generate_reasoning_mid_rank_uses_concrete_snippet():
+    cand = {
+        "profile_current_title": "Ranking Engineer",
+        "rank": 52,
+        "retrieval_search": 2.0,
+        "eval_framework": 2.0,
+        "snippets_json": '{"retrieval_search": "Owned semantic search with FAISS and human relevance judgments."}'
+    }
+    reason = generate_reasoning(cand)
+    assert "Owned semantic search with FAISS" in reason
+    assert "production depth" not in reason
 
 def test_generate_reasoning_top_rank_moderate_is_positive():
     cand = {
@@ -78,6 +93,7 @@ def test_generate_reasoning_top_rank_moderate_is_positive():
     assert "lacks deep production evidence" not in reason
     assert "30-day notice" in reason
     assert "82% recruiter response" in reason
+    assert "Hiring fit is helped by" in reason
 
 def test_generate_reasoning_low_rank():
     cand = {
@@ -88,4 +104,132 @@ def test_generate_reasoning_low_rank():
         "core_score": 35.0
     }
     reason = generate_reasoning(cand)
-    assert "failed to meet the technical depth" in reason
+    assert "does not meet the JD's full technical-depth bar" in reason
+    assert "Rank is limited" not in reason
+
+
+def test_generate_reasoning_uses_natural_caveat_language():
+    cand = {
+        "profile_current_title": "Search Engineer",
+        "profile_current_company": "FindMe",
+        "profile_years_of_experience": 6.0,
+        "rank": 40,
+        "retrieval_search": 3.5,
+        "beh_location": "Kolkata",
+        "beh_willing_to_relocate": False,
+        "snippets_json": '{"retrieval_search": "Designed hybrid dense-sparse vector search using Qdrant."}'
+    }
+    reason = generate_reasoning(cand)
+    assert "The main caveat is logistics" in reason
+    assert "preferred/welcome cities" in reason
+    assert "Rank is limited" not in reason
+
+
+def test_generate_reasoning_ltr_lead_is_not_redundant():
+    cand = {
+        "profile_current_title": "Ranking Engineer",
+        "profile_current_company": "FindMe",
+        "profile_years_of_experience": 6.0,
+        "rank": 8,
+        "ltr_reranking": 3.5,
+        "snippets_json": '{"ltr_reranking": "reranking work"}'
+    }
+    reason = generate_reasoning(cand)
+    assert "direct learning-to-rank/reranking evidence" in reason
+    assert "including reranking work" not in reason
+
+
+def test_trim_snippet_drops_partial_hyphenated_suffix():
+    snippet = "Built a retrieval system with LLM-bas"
+    trimmed = _trim_snippet(snippet)
+    assert "LLM-bas" not in trimmed
+    assert trimmed == "Built a retrieval system"
+
+
+def test_trim_snippet_keeps_complete_hyphenated_phrase():
+    snippet = "Owned the end-to-end ranking pipeline for a marketplace product"
+    trimmed = _trim_snippet(snippet, limit=40)
+    assert "end-to-end" in trimmed
+
+
+def test_trim_snippet_removes_weak_connector_edges():
+    snippet = "and shipped a production recommendation system at a marketplace product, going"
+    assert _trim_snippet(snippet) == "shipped a production recommendation system at a marketplace product"
+
+
+def test_trim_snippet_removes_heading_and_title_prefixes():
+    assert (
+        _trim_snippet("Search & Ranking Shipped the personalization infrastructure")
+        == "Shipped the personalization infrastructure"
+    )
+    assert (
+        _trim_snippet("Applied Scientist Shipped the personalization infrastructure")
+        == "Shipped the personalization infrastructure"
+    )
+
+
+def test_trim_snippet_recovers_from_mid_word_windows():
+    assert (
+        _trim_snippet("iddle layer — the ranking and retrieval systems that decide what to show. Strong preferenc")
+        == "ranking and retrieval systems that decide what to show"
+    )
+    assert (
+        _trim_snippet("engagement history. Owned the offline-online correlation analysis that determined which")
+        == "Owned the offline-online correlation analysis"
+    )
+    assert (
+        _trim_snippet("sential parts: index refresh, query understanding, ranking calibration")
+        == "index refresh, query understanding, ranking calibration"
+    )
+    assert (
+        _trim_snippet("engineering early, optimizing offline metrics that didn't move online numbers, building be")
+        == "optimizing offline metrics that didn't move online numbers"
+    )
+    assert (
+        _trim_snippet("sentence-transformers, FAISS, the works, I've spent enough t")
+        == "sentence-transformers, FAISS"
+    )
+    assert (
+        _trim_snippet("learning-to-rank model over 9 months, Designed the relevance")
+        == "learning-to-rank model over 9 months"
+    )
+    assert (
+        _trim_snippet("(via sentence-transformer embeddings) for cold starts and a gradient-boosted")
+        == "sentence-transformer embeddings for cold starts"
+    )
+    assert (
+        _trim_snippet("Owned the offline-online correlation analysis that determined which")
+        == "Owned the offline-online correlation analysis"
+    )
+    assert (
+        _trim_snippet("9 months, Designed the relevance labeling pipeline mix of click-through data")
+        == "Designed a relevance labeling pipeline using click-through data"
+    )
+    assert (
+        _trim_snippet("(via sentence-transformer embeddings) for cold starts and a gradient-boosted")
+        == "sentence-transformer embeddings for cold starts"
+    )
+    assert (
+        _trim_snippet("Recently, I shipped our first RAG-based feature this year and now own the eval")
+        == "shipped a RAG-based feature and owned evaluation work"
+    )
+    assert (
+        _trim_snippet("BM25 setup, validated through human relevance judgments, Owned the ranking la")
+        == "BM25 retrieval validated through human relevance judgments and ranking-layer ownership"
+    )
+    assert (
+        _trim_snippet("BM25 setup, validated through human relevance judgments, AI Engineer Trained")
+        == "BM25 retrieval validated through human relevance judgments"
+    )
+    assert (
+        _trim_snippet("Engineer Implemented a RAG-based customer support chatbot integrated with our")
+        == "Implemented a RAG-based customer support chatbot integrated"
+    )
+    assert (
+        _trim_snippet("Implemented a RAG-based customer support chatbot integrated with our exist")
+        == "Implemented a RAG-based customer support chatbot"
+    )
+    assert (
+        _trim_snippet("Owned the offline-online correlation analysis that determined")
+        == "Owned the offline-online correlation analysis"
+    )
