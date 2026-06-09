@@ -101,6 +101,13 @@ def compute_core_score(features: Dict[str, Any]) -> float:
         core_score += W["scoring.eval_trifecta_bonus"]
     elif (
         features.get("retrieval_search", 0.0) >= 2.0
+        and features.get("vector_db_hybrid", 0.0) >= 2.0
+        and features.get("ltr_reranking", 0.0) >= 2.0
+        and features.get("eval_framework", 0.0) >= 2.0
+    ):
+        core_score += W["scoring.eval_plan_coverage_bonus"]
+    elif (
+        features.get("retrieval_search", 0.0) >= 2.0
         and features.get("eval_framework", 0.0) >= 2.0
     ):
         core_score += W["scoring.eval_retrieval_bonus"]
@@ -206,6 +213,12 @@ def score_candidates_vectorized(df) -> object:
         (pl.col("ltr_reranking") >= 3.0) &
         (pl.col("eval_framework") >= 2.0)
     )
+    plan_coverage = (
+        (pl.col("retrieval_search") >= 2.0) &
+        (pl.col("vector_db_hybrid") >= 2.0) &
+        (pl.col("ltr_reranking") >= 2.0) &
+        (pl.col("eval_framework") >= 2.0)
+    )
     retrieval_eval = (
         (pl.col("retrieval_search") >= 2.0) &
         (pl.col("eval_framework") >= 2.0)
@@ -215,6 +228,8 @@ def score_candidates_vectorized(df) -> object:
         core_score
         + pl.when(trifecta)
             .then(pl.lit(W["scoring.eval_trifecta_bonus"]))
+            .when(plan_coverage)
+            .then(pl.lit(W["scoring.eval_plan_coverage_bonus"]))
             .when(retrieval_eval)
             .then(pl.lit(W["scoring.eval_retrieval_bonus"]))
             .otherwise(pl.lit(0.0))

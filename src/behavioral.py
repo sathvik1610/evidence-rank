@@ -111,6 +111,119 @@ def has_bad_logistics_combo(cand: dict) -> bool:
     return notice_bad and _outside_preferred_no_reloc(cand)
 
 
+def has_short_notice_strong_plan_fit(cand: dict) -> bool:
+    """Flexible-location exception for evidence-rich India candidates with reachable notice."""
+    country = (cand.get("beh_country") or "").lower()
+    if country != "india" or cand.get("beh_willing_to_relocate", False):
+        return False
+    try:
+        notice_days = float(cand.get("beh_notice_period_days"))
+    except (TypeError, ValueError):
+        return False
+    return (
+        notice_days <= W["behavioral.notice_mild_days"]
+        and cand.get("ninety_day_alignment", 0.0) >= 0.85
+        and cand.get("retrieval_search", 0.0) >= 2.0
+        and cand.get("eval_framework", 0.0) >= 2.0
+    )
+
+
+def has_reachable_elite_plan_fit(cand: dict) -> bool:
+    """Full JD-plan coverage plus practical reachability should not be buried."""
+    try:
+        notice_days = float(cand.get("beh_notice_period_days"))
+        response_rate = float(cand.get("beh_recruiter_response_rate", 0.0))
+        ce_score = float(cand.get("ce_score", 0.0))
+    except (TypeError, ValueError):
+        return False
+    return (
+        cand.get("retrieval_search", 0.0) >= 2.0
+        and cand.get("vector_db_hybrid", 0.0) >= 2.0
+        and cand.get("eval_framework", 0.0) >= 2.0
+        and cand.get("ltr_reranking", 0.0) >= 3.0
+        and cand.get("career_eval_density", 0.0) >= 0.80
+        and cand.get("ninety_day_alignment", 0.0) >= 0.90
+        and response_rate >= W["behavioral.passive_response_skip_threshold"]
+        and notice_days <= W["behavioral.notice_mild_days"]
+        and cand.get("beh_willing_to_relocate", False)
+        and ce_score >= W["behavioral.reachable_elite_ce_threshold"]
+        and cand.get("final_phase4_score", 0.0) <= W["behavioral.reachable_elite_phase4_max"]
+        and (cand.get("target_skill_duration_contradiction", 0) or 0) <= 1
+    )
+
+
+def has_full_plan_coverage(cand: dict) -> bool:
+    """Candidate covers the JD's retrieval, vector/hybrid, ranking, and eval plan."""
+    return (
+        cand.get("retrieval_search", 0.0) >= 2.0
+        and cand.get("vector_db_hybrid", 0.0) >= 2.0
+        and cand.get("eval_framework", 0.0) >= 2.0
+        and cand.get("ltr_reranking", 0.0) >= 2.0
+        and cand.get("ninety_day_alignment", 0.0) >= W["behavioral.full_plan_band_ninety_min"]
+    )
+
+
+def full_plan_band_bonus(cand: dict, base_score: float) -> float:
+    """
+    Small rescue for the review band when all JD-plan signals agree.
+
+    This is not a top-candidate boost: it only applies to candidates already in
+    the strong-but-not-top score band and requires CE agreement plus reachable
+    hiring signals. It intentionally leaves long-notice/no-relocation candidates
+    to the normal logistics penalties.
+    """
+    try:
+        notice_days = float(cand.get("beh_notice_period_days"))
+        response_rate = float(cand.get("beh_recruiter_response_rate", 0.0))
+        ce_score = float(cand.get("ce_score", 0.0))
+        phase4_score = float(cand.get("final_phase4_score", 0.0))
+        target_contradictions = int(cand.get("target_skill_duration_contradiction", 0) or 0)
+        base_score = float(base_score)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if (
+        not has_full_plan_coverage(cand)
+        or phase4_score > W["behavioral.full_plan_band_phase4_max"]
+        or base_score < W["behavioral.full_plan_band_score_min"]
+        or base_score > W["behavioral.full_plan_band_score_max"]
+    ):
+        return 0.0
+
+    if cand.get("beh_willing_to_relocate", False):
+        if (
+            notice_days <= W["behavioral.notice_mild_days"]
+            and response_rate >= W["behavioral.full_plan_band_reloc_response_min"]
+            and ce_score >= W["behavioral.full_plan_band_reloc_ce_min"]
+            and target_contradictions <= W["behavioral.full_plan_band_reloc_target_contradiction_max"]
+        ):
+            return W["behavioral.full_plan_band_reloc_bonus"]
+        return 0.0
+
+    country = (cand.get("beh_country") or "").lower()
+    if country != "india":
+        return 0.0
+
+    if (
+        notice_days <= W["behavioral.notice_ideal_days"]
+        and response_rate >= W["behavioral.full_plan_band_no_reloc_short_response_min"]
+        and ce_score >= W["behavioral.full_plan_band_no_reloc_short_ce_min"]
+        and target_contradictions <= W["behavioral.full_plan_band_no_reloc_target_contradiction_max"]
+    ):
+        return W["behavioral.full_plan_band_no_reloc_short_bonus"]
+
+    if (
+        notice_days <= W["behavioral.notice_mild_days"]
+        and response_rate >= W["behavioral.full_plan_band_no_reloc_mild_response_min"]
+        and ce_score >= W["behavioral.full_plan_band_no_reloc_mild_ce_min"]
+        and cand.get("career_eval_density", 0.0) >= W["behavioral.full_plan_band_no_reloc_mild_career_eval_min"]
+        and target_contradictions <= W["behavioral.full_plan_band_no_reloc_target_contradiction_max"]
+    ):
+        return W["behavioral.full_plan_band_no_reloc_mild_bonus"]
+
+    return 0.0
+
+
 def reachability_multiplier(cand: dict, reference_date: date) -> float:
     mult = 1.0
 
@@ -256,7 +369,10 @@ def soft_penalties(cand: dict) -> float:
         multiplier *= W["soft_penalties.long_notice_weak_eval_mult"]
 
     if _outside_preferred_no_reloc(cand):
-        multiplier *= W["soft_penalties.no_reloc_outside_preferred_mult"]
+        if has_short_notice_strong_plan_fit(cand):
+            multiplier *= W["soft_penalties.no_reloc_strong_fit_mult"]
+        else:
+            multiplier *= W["soft_penalties.no_reloc_outside_preferred_mult"]
 
     if has_bad_logistics_combo(cand):
         multiplier *= W["soft_penalties.bad_logistics_combo_mult"]
@@ -324,14 +440,21 @@ def compute_final_score(cand: dict, reference_date: date) -> float:
     # Additive bonuses
     ninety_day_alignment = cand.get("ninety_day_alignment", 0.0)
     ninety_day_bonus     = W["behavioral.ninety_day_bonus_max"] * ninety_day_alignment
+    elite_plan_bonus = (
+        W["behavioral.reachable_elite_plan_bonus"]
+        if has_reachable_elite_plan_fit(cand)
+        else 0.0
+    )
 
     social_boost = social_proof_boost(cand)
 
-    final = (
+    base_final = (
         phase4_score * combined_mult
         + ninety_day_bonus
+        + elite_plan_bonus
         + social_boost
     )
+    final = base_final + full_plan_band_bonus(cand, base_final)
 
     # Floor protection: if penalties are extreme, force to 0.0
     if penalty_mult < W["behavioral.penalty_floor_zero"]:

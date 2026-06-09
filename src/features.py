@@ -47,8 +47,13 @@ TARGET_SKILLS: Dict[str, List[str]] = JD_FEATURE_CONTRACT["target_skills"]
 # ---------------------------------------------------------------------------
 
 def _build_career_text(candidate: Dict[str, Any]) -> str:
-    """Concatenate all career description text into a single string for regex search."""
+    """Concatenate candidate evidence text into a single string for regex search."""
     parts = []
+    profile = candidate.get("profile", {})
+    for key in ("current_title", "headline", "summary", "current_industry"):
+        value = profile.get(key, "")
+        if value:
+            parts.append(value)
     for role in candidate.get("career_history", []):
         title = role.get("title", "")
         desc = role.get("description", "")
@@ -69,6 +74,47 @@ def _get_snippet(career_text: str, match_start: int, context: int = 30) -> str:
     start = max(0, match_start - context)
     end = min(len(career_text), match_start + 60)
     return career_text[start:end].strip()
+
+
+def _snippet_quality(snippet: str) -> int:
+    """Prefer concrete role evidence over generic summary/profile language."""
+    text = str(snippet or "").lower()
+    score = 0
+    concrete_patterns = (
+        EVALUATION_PATTERNS
+        + RETRIEVAL_PATTERNS
+        + RANKING_PATTERNS
+        + PRODUCTION_PATTERNS
+        + [
+            r"\b\d+(?:\.\d+)?\s*(?:m\+|k\+|million|ms|qps|gb|%)\b",
+            r"\bndcg@\d+\b",
+            r"\bmrr\b",
+            r"\brecall@k\b",
+            r"\ba/b\b",
+            r"\bxgboost\b",
+            r"\bbge\b",
+            r"\bfaiss\b",
+            r"\bpinecone\b",
+            r"\bbm25\b",
+        ]
+    )
+    for pattern in concrete_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            score += 2
+    generic_fragments = (
+        "strong background",
+        "comfortable across",
+        "machine learning engineer",
+        "applied ai",
+        "my academic background",
+        "open to senior",
+    )
+    for fragment in generic_fragments:
+        if fragment in text:
+            score -= 4
+    if any(verb in text for verb in ("built", "owned", "designed", "shipped", "migrated", "deployed", "serving")):
+        score += 3
+    return score
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +184,10 @@ def score_skill_bucket(
                     break  # Apply bonus once per bucket
 
         scores[bucket_name] = score
-        snippets[bucket_name] = career_evidence_snippets[0] if career_evidence_snippets else ""
+        snippets[bucket_name] = (
+            max(career_evidence_snippets, key=_snippet_quality)
+            if career_evidence_snippets else ""
+        )
 
     return scores, snippets
 
