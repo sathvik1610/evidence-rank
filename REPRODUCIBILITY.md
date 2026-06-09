@@ -32,6 +32,22 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+WSL/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y python3-full python3-venv python3-pip git-lfs
+git lfs install
+git lfs pull
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Inside WSL, do not use Windows commands such as `py -3.11` or `.\.venv\Scripts\activate`.
+
 Do not use Python 3.13. It can force packages such as pandas or FAISS-related dependencies to build from source or fail to resolve.
 
 ## Required Local Files

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import pytest
 import sys
 sys.path.insert(0, ".")
@@ -9,7 +10,10 @@ from src.features import (
 
 @pytest.fixture
 def sample_candidates():
-    with open("Resources/sample_candidates.json") as f:
+    sample_path = Path("sample_candidates.json")
+    if not sample_path.exists():
+        sample_path = Path("Resources/sample_candidates.json")
+    with sample_path.open(encoding="utf-8") as f:
         return json.load(f)
 
 def test_smoke_extract_features(sample_candidates):

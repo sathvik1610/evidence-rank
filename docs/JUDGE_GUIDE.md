@@ -11,11 +11,41 @@ Team BuriBuri:
 
 ## What To Run
 
-```bash
+Windows PowerShell:
+
+```powershell
 git lfs install
 git lfs pull
 py -3.11 -m venv .venv
 .\.venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
+
+macOS/Linux:
+
+```bash
+git lfs install
+git lfs pull
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
+
+For WSL/Ubuntu, use Linux venv commands instead:
+
+```bash
+sudo apt update
+sudo apt install -y python3-full python3-venv python3-pip git-lfs
+git lfs install
+git lfs pull
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv

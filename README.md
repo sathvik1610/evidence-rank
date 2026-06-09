@@ -33,6 +33,22 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+WSL/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y python3-full python3-venv python3-pip git-lfs
+git lfs install
+git lfs pull
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Do not use Windows commands such as `py -3.11` or `.\.venv\Scripts\activate` inside WSL. Use `python3 -m venv .venv` and `source .venv/bin/activate`.
+
 If artifacts are stored through Git LFS, pull them after cloning:
 
 ```bash
