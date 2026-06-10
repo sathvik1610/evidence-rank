@@ -64,7 +64,7 @@ python -m pytest tests -q
 
 - `team_BuriBuri.csv` with exactly 100 rows.
 - Required columns: `candidate_id,rank,score,reasoning`.
-- Runtime around 2-3 seconds with current artifacts.
+- Runtime around 6-7 seconds locally with current artifacts.
 - CPU-only ranking, no network calls, no GPU, no hosted LLM.
 
 ## Integrity Declaration
@@ -75,7 +75,7 @@ No candidate was manually inserted, removed, reordered, rescored, or manually gi
 
 ## Architecture In One Paragraph
 
-The system precomputes candidate embeddings, sparse vectors, BM25 indexes, honeypot flags, retrieval scores, feature tables, and cross-encoder scores offline. At runtime, `rank.py` loads these artifacts, filters to the provided candidate IDs, slices the RRF retrieval pool, computes a JD-specific handcrafted score, blends the offline cross-encoder score, applies behavioral and trust modifiers, assigns deterministic ranks, and generates factual reasoning from extracted snippets.
+The system precomputes candidate embeddings, sparse vectors, BM25 indexes, honeypot flags, retrieval scores, feature tables, and cross-encoder scores offline. At runtime, `rank.py` loads these artifacts, filters to the provided candidate IDs, slices the RRF retrieval pool, computes a JD-specific handcrafted score, blends the offline cross-encoder score, runs a lightweight full-profile calibration pass over the final slice, applies behavioral and trust modifiers, assigns deterministic ranks, and generates factual reasoning from extracted snippets.
 
 ## Why This Is Not Keyword Stuffing
 
@@ -124,5 +124,5 @@ Latest local checks:
 validate_submission.py team_BuriBuri.csv: valid
 reasoning factuality audit: 100 rows checked, 0 errors, 0 warnings
 pytest: 94 passed
-rank.py runtime: about 2.1 seconds
+rank.py runtime: about 6.4 seconds locally
 ```

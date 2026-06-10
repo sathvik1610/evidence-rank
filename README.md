@@ -89,19 +89,41 @@ These are local verification metrics for the current generated `team_BuriBuri.cs
 |---|---:|
 | Output rows | 100 |
 | Required columns | `candidate_id,rank,score,reasoning` |
-| Runtime for `rank.py` | about 2.1 seconds |
+| Runtime for `rank.py` | about 6.4 seconds locally |
 | Ranking constraint | CPU only, no network, no GPU |
 | Submission validator | Pass |
 | Reasoning factuality audit | 100 rows checked, 0 errors, 0 warnings |
 | Full test suite | 94 passed |
-| Top score | 95.86758 |
-| Rank-100 score | 51.063791 |
-| Mean score | 66.1263 |
-| Median score | 64.9965 |
+| Top score | 99.459695 |
+| Rank-100 score | 54.047821 |
+| Mean score | 68.928685 |
+| Median score | 69.027202 |
 | Rank 1 | `CAND_0018499` |
-| Rank 10 | `CAND_0061257` |
-| Rank 50 | `CAND_0053695` |
+| Rank 10 | `CAND_0002025` |
+| Rank 50 | `CAND_0075249` |
 | Rank 100 | `CAND_0027801` |
+
+## Preprocessing Reliability
+
+The expensive preprocessing stage reduces the official 100,000-candidate pool to the feature pool consumed by `rank.py`. The current feature pool contains 12,325 candidates, built as a union of two complementary recall paths:
+
+- a semantic RRF base from dense BGE-M3 retrieval, learned-sparse BGE-M3 retrieval, and BM25
+- a full-corpus exact/regex rescue lane over JD-critical career evidence such as retrieval, search, recommendation, ranking, vector/hybrid search, evaluation, Python, and production shipping language
+
+This is intentionally wider than the final top-100 requirement. The goal is high recall before scoring, not early precision. The exact recall lane scans all 100,000 candidates and the current artifacts include every candidate from that lane's top 10,000. The resulting 12,325-row pool is therefore not just "top embedding matches"; it also protects against missing strong plain-language profiles that describe recommendation, ranking, or evaluation work without fashionable RAG/vector keywords.
+
+Current artifact coverage checks:
+
+| Check | Current result |
+|---|---:|
+| Current retrieval pool | 12,325 candidates |
+| Feature rows | 12,325 candidates |
+| Cross-encoder rows | 12,325 candidates |
+| Exact recall top-10K missing from feature pool | 0 |
+| Final top-100 outside feature pool | 0 |
+| Final top-100 with impossible/suspicious/ghost flags | 0 |
+
+The main residual risk is semantic-only candidates ranked outside the older semantic base but not caught by exact recall. In practice that risk is reduced by the full-corpus exact lane, the breadth of JD patterns, and the fact that all final top-100 candidates already come from the semantic base. A full preprocessing refresh may change the candidate pool slightly if the semantic base is widened, but it is not required to reproduce or validate the current submission.
 
 Competition scoring metrics from `Resources/submission_spec.txt`:
 
@@ -160,7 +182,7 @@ Purpose:
 - encode candidates with `BAAI/bge-m3`
 - build dense FAISS, learned-sparse CSR, and BM25 indexes
 - run honeypot, ghost, contradiction, and trust checks directly on JSON fields
-- create high-recall retrieval scores using RRF
+- create high-recall retrieval scores using RRF plus a full-corpus exact recall rescue lane
 - extract JD-specific features and evidence snippets
 - run `BAAI/bge-reranker-v2-m3` cross-encoder offline
 - save all reusable artifacts under `artifacts/`
@@ -182,6 +204,7 @@ Purpose:
 - slice the retrieval pool using `weights.yaml`
 - compute core score with `src/scorer.py`
 - blend precomputed cross-encoder score with handcrafted score
+- apply a lightweight full-profile runtime calibration pass for the final slice
 - apply behavioral modifiers and trust penalties with `src/behavioral.py`
 - assign deterministic ranks
 - generate factual reasoning with `src/explainer.py`
@@ -205,6 +228,7 @@ For the deeper system walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.
 | Honeypot/trust checks | Phase 1f preprocessing | Detects impossible timelines, ghosts, overclaims, and suspicious profiles |
 | Handcrafted scoring | Phase 4 runtime | Interpretable JD-specific score based on must-haves, career quality, and product ownership |
 | Cross-encoder merge | Phase 4 runtime from offline scores | Improves semantic ordering without runtime model inference |
+| Runtime profile calibration | Phase 5 runtime over top slice | Reads full profile text for recent full-plan JD fit and current services context |
 | Behavioral modifiers | Phase 5 runtime | Applies reachability, notice, location, activity, and trust penalties late |
 | Deterministic reasoning | Phase 6 runtime | Generates factual 1-2 sentence explanations without LLM hallucination risk |
 
@@ -233,10 +257,10 @@ Cross-encoder blend:
 
 | Phase 4 component | Weight |
 |---|---:|
-| Handcrafted core score | 0.65 |
-| Precomputed cross-encoder score | 0.35 |
+| Handcrafted core score | 0.68 |
+| Precomputed cross-encoder score | 0.32 |
 
-Behavioral and penalty values are also in `weights.yaml`, including notice period, response rate, location, relocation, ghost/honeypot, social proof, contradiction, and low-density evidence penalties.
+Behavioral and penalty values are also in `weights.yaml`, including notice period, response rate, location, relocation, ghost/honeypot, social proof, contradiction, services-context, full-profile calibration, and low-density evidence penalties.
 
 ## Artifact Guide
 
@@ -297,6 +321,8 @@ python preprocess.py --candidates ./candidates.jsonl
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
+
+Full preprocessing is only worth rerunning when you intentionally want to refresh the semantic retrieval base, embeddings, indexes, or cross-encoder scores. It may produce a slightly different top-100 because the upstream candidate pool can change. It should not be used as a casual last-minute step unless there is time to compare and audit the regenerated CSV.
 
 Cross-encoder refresh only:
 
@@ -364,6 +390,7 @@ evidence-rank/
 |   |-- features.py                 # Phase 3 feature extraction
 |   |-- scorer.py                   # Phase 4 core scoring
 |   |-- reranker.py                 # Cross-encoder score merge
+|   |-- runtime_calibration.py      # Full-profile calibration for final runtime slice
 |   |-- behavioral.py               # Phase 5 modifiers and penalties
 |   |-- explainer.py                # Phase 6 reasoning generation
 |   `-- weights.py                  # weights.yaml loader

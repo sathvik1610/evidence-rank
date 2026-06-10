@@ -87,7 +87,7 @@ Also runs sub-phases offline:
 |---|---|
 | **Purpose** | Compute a technical fit score and refine the top 500 with semantic cross-encoder judgment |
 | **Input** | Bucket A/B/C features, `cross_encoder_scores.parquet` |
-| **Processing** | Apply 4-component weighted formula (Must-Have 55% + Nice-to-Have 10% + Career Quality 15% + Product Builder 20%) → merge precomputed cross-encoder scores (65% handcrafted + 35% CE) |
+| **Processing** | Apply 4-component weighted formula (Must-Have 55% + Nice-to-Have 5% + Career Quality 15% + Product Builder 25%) → merge precomputed cross-encoder scores (68% handcrafted + 32% CE) |
 | **Output** | `final_phase4_score` per candidate; narrowed to top 500 before behavioral scoring |
 
 ---
@@ -156,7 +156,7 @@ Three ranked lists are fused: FAISS (skills vector), FAISS (ideal-candidate vect
 
 ## Layer 2: Core Score (Phase 4) — technical fit
 
-$$\text{Core Score} = 0.55 \times S_{\text{must-have}} + 0.10 \times S_{\text{nice-to-have}} + 0.15 \times S_{\text{career quality}} + 0.20 \times S_{\text{product builder}}$$
+$$\text{Core Score} = 0.55 \times S_{\text{must-have}} + 0.05 \times S_{\text{nice-to-have}} + 0.15 \times S_{\text{career quality}} + 0.25 \times S_{\text{product builder}}$$
 
 ### Must-Have Score (55% of core_score):
 
@@ -166,7 +166,7 @@ Each domain score is 0–1 (normalized from the 0–3 Bucket A evidence score).
 
 **Hard cap:** If `retrieval_search`, `vector_db_hybrid`, and `sys_experience_score` are all 0, must-have raw score is capped at 0.50.
 
-### Nice-to-Have Score (10% of core_score):
+### Nice-to-Have Score (5% of core_score):
 
 $$S_{\text{nice-to-have}} = \frac{0.07 \times S_{\text{ltr}} + 0.03 \times S_{\text{llm}}}{0.10}$$
 
@@ -179,9 +179,9 @@ $$S_{\text{career}} = \frac{0.08 \times \text{sys\_experience\_score} + 0.04 \ti
 - Research-only career: ×0.5
 - Wrong domain (CV/speech, no NLP): ×0.3
 
-### Product Builder Score (20% of core_score):
+### Product Builder Score (25% of core_score):
 
-$$S_{\text{product builder}} = 0.35 \times \text{product\_ratio} + 0.30 \times \text{deploy\_signal} + 0.20 \times \text{shipper\_ratio} + 0.15 \times \text{ownership\_signal}$$
+$$S_{\text{product builder}} = 0.40 \times \text{product\_ratio} + 0.28 \times \text{deploy\_signal} + 0.17 \times \text{shipper\_ratio} + 0.15 \times \text{ownership\_signal}$$
 
 **Product builder multipliers (applied after sum):**
 - Consulting-only career: ×0.4
@@ -392,7 +392,7 @@ candidates.jsonl (100K profiles)
      │  4-component formula: 55% must-have + 5% nice-to-have
      │                      + 15% career quality + 25% product builder
      │  Left-join cross_encoder_scores.parquet
-     │  Final Phase4 = 0.80 × core + 0.20 × CE
+     │  Final Phase4 = 0.68 × core + 0.32 × CE
      │  Narrow to top 200–300
      │  ~30 seconds
      │
@@ -597,10 +597,10 @@ All tunable via `weights.yaml` — **no Python code changes needed.** Edit `weig
 | Parameter | `weights.yaml` key | Default | Effect of Increasing | Effect of Decreasing |
 |---|---|---|---|---|
 | **Must-Have weight** | `phase4.must_have_weight` | **55%** | Technical skills dominate more | Behavioral/career signals matter more |
-| **Product Builder weight** | `phase4.product_builder_weight` | **20%** | Shipping/startup background matters more | Technical keyword evidence dominates |
+| **Product Builder weight** | `phase4.product_builder_weight` | **25%** | Shipping/startup background matters more | Technical keyword evidence dominates |
 | **Career Quality weight** | `phase4.career_quality_weight` | **15%** | Domain trajectory matters more | Skills evidence dominates |
-| **Nice-to-Have weight** | `phase4.nice_to_have_weight` | **10%** | LTR/LLM experience rewards higher | Must-have skills dominate even more |
-| **Cross-Encoder weight** | `phase4.cross_encoder_weight` | **20%** (CE in Phase4) | Semantic match dominates | Handcrafted features dominate |
+| **Nice-to-Have weight** | `phase4.nice_to_have_weight` | **5%** | LTR/LLM experience rewards higher | Must-have skills dominate even more |
+| **Cross-Encoder weight** | `phase4.cross_encoder_weight` | **32%** (CE in Phase4) | Semantic match dominates | Handcrafted features dominate |
 | **RRF k constant** | `retrieval.rrf_k` | **60** | High-rank positions matter less; mid-rankers favored | Top positions in any list are heavily rewarded |
 | **FAISS top-k** | `retrieval.faiss_top_k` | **2,000** per vector | Broader recall, slower RRF | Tighter recall, faster, may miss edge candidates |
 | **Ghost: days_inactive** | `ghost.days_inactive_threshold` | **365 days** | Fewer ghosts filtered | More candidates filtered |
@@ -716,8 +716,8 @@ This is a high RRF score — top 50 in the retrieved pool.
 
 **Product Builder Score:**
 ```
-product_builder_score = 0.35 × 0.98 + 0.30 × 1.0 + 0.20 × 1.0 + 0.15 × 1.0
-                      = 0.343 + 0.30 + 0.20 + 0.15 = 0.993
+product_builder_score = 0.40 × 0.98 + 0.28 × 1.0 + 0.17 × 1.0 + 0.15 × 1.0
+                      = 0.392 + 0.28 + 0.17 + 0.15 = 0.992
 ```
 
 **Bucket C — JD Fit Gaps:**
@@ -772,7 +772,7 @@ No consulting/research/wrong-domain flags
 career_quality_score = 0.15 / 0.15 = 1.0
 ```
 
-**Product Builder Score** (computed in Bucket B above): **0.993**
+**Product Builder Score** (computed in Bucket B above): **0.992**
 
 **Core Score:**
 ```
@@ -785,7 +785,7 @@ career_quality_score = 0.15 / 0.15 = 1.0
 
 **Phase 4 Final:**
 ```
-0.65 × 0.853 + 0.35 × 0.85 = 0.554 + 0.298 = 0.852
+0.68 × 0.853 + 0.32 × 0.85 = 0.580 + 0.272 = 0.852
 ```
 
 ---
@@ -849,7 +849,7 @@ final = 0.852 × 1.15 + 0.0797 + 0.03
 CAND_XXXXXXX,1,1.090,"7-year ML Engineer; evidence: 'dense retrieval pipeline using FAISS and sentence-transformers serving 500K'; suited for Weeks 4-8 hybrid ranker mandate. Strong availability: 30-day notice, 82% recruiter response rate."
 ```
 
-**Arjun ranks #1 (or near it).** He has maximum technical evidence (3/3 retrieval, 3/3 vector DB), near-perfect product builder score (0.993), perfect career quality (1.0), full seniority, ideal location, ideal availability, zero penalties, and full 90-day milestone coverage. The only gap is zero LTR/LLM evidence (nice-to-haves worth 5%), but his 55% must-have score and 25% product builder score are near-ceiling.
+**Arjun ranks #1 (or near it).** He has maximum technical evidence (3/3 retrieval, 3/3 vector DB), near-perfect product builder score (0.992), perfect career quality (1.0), full seniority, ideal location, ideal availability, zero penalties, and full 90-day milestone coverage. The only gap is zero LTR/LLM evidence (nice-to-haves worth 5%), but his 55% must-have score and 25% product builder score are near-ceiling.
 
 ---
 

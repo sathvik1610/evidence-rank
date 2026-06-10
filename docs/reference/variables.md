@@ -11,7 +11,7 @@ This file is the concise current tuning reference for the checked-in pipeline. T
 | Runtime RRF cutoff | 10,000 | `weights.yaml -> retrieval.runtime_top_k` |
 | Phase 4 slice before behavior | 500 | `rank.py` |
 | Cross-encoder precompute pool | 15,000 | `constants.CE_PRECOMPUTE_TOPK` |
-| Cross-encoder merge | 65% handcrafted / 35% CE | `weights.yaml -> scoring.handcrafted_weight`, `scoring.cross_encoder_weight` |
+| Cross-encoder merge | 68% handcrafted / 32% CE | `weights.yaml -> scoring.handcrafted_weight`, `scoring.cross_encoder_weight` |
 
 ## Core Score
 

@@ -34,20 +34,22 @@ The expensive work is in `preprocess.py`. The final competition path is `rank.py
 
 ## Stage A: Offline Preprocessing
 
-Stage A can use GPU and can take longer. It produces reusable artifacts that make final ranking fast and reproducible.
+Stage A can use GPU and can take longer. It produces reusable artifacts that make final ranking fast and reproducible. Its main quality objective is recall: the system should avoid throwing away plausible top-tier candidates before the more careful scoring and behavioral layers see them.
 
 ```mermaid
 flowchart TD
     A["Phase 0: JD Intelligence"] --> B["Phase 1: Candidate Text + Embeddings"]
     B --> C["Phase 1f: Honeypot / Trust Flags"]
-    B --> D["Phase 1d: Multi-Signal Retrieval"]
-    C --> D
-    D --> E["Phase 1c: Feature Extraction"]
-    D --> F["Phase 1e: Cross-Encoder Scoring"]
-    E --> G["candidate_features.parquet"]
-    F --> H["cross_encoder_scores.parquet"]
-    D --> I["retrieval_scores.parquet"]
-    C --> J["candidate_flags.parquet"]
+    B --> D["Phase 1d: Dense/Sparse/BM25 Retrieval"]
+    C --> E["Full-Corpus Exact Recall Rescue"]
+    D --> F["RRF Fusion"]
+    E --> F
+    F --> G["Phase 1c: Feature Extraction"]
+    F --> H["Phase 1e: Cross-Encoder Scoring"]
+    G --> I["candidate_features.parquet"]
+    H --> J["cross_encoder_scores.parquet"]
+    F --> K["retrieval_scores.parquet"]
+    C --> L["candidate_flags.parquet"]
 ```
 
 ### Phase 0: JD Intelligence
@@ -150,7 +152,34 @@ Why:
 
 - Dense-only retrieval misses exact evaluation/system terms.
 - BM25-only retrieval misses semantic recommender/search profiles.
-- RRF gives a robust high-recall candidate pool before scoring.
+- The exact recall lane scans the full 100K candidate corpus and rescues profiles with explicit career evidence for retrieval, recommendation, ranking, vector/hybrid search, evaluation, Python, and production ownership.
+- RRF gives a robust high-recall candidate pool before scoring, while avoiding dependence on any single retrieval method.
+
+### 100K To 12.3K Reliability
+
+The current artifacts reduce 100,000 candidates to a 12,325-candidate feature pool. This is a recall-first funnel, not a precision filter. The pool is the union of:
+
+| Recall source | Role in the funnel |
+|---|---|
+| Dense BGE-M3 JD queries | captures semantic matches to the JD even when exact wording differs |
+| Learned-sparse BGE-M3 queries | keeps model-derived lexical anchors and technical terms alive |
+| BM25 | preserves exact evidence such as BM25, FAISS, Pinecone, NDCG, MRR, MAP, and Python |
+| Exact full-corpus rescue | scans all 100K raw profiles for field-aware JD-critical evidence |
+
+The exact rescue lane is intentionally field-aware: career descriptions and titles count more than skills-only claims. It requires a primary retrieval/ranking/recommendation/search signal before adding related vector, evaluation, Python, or production evidence. This suppresses generic AI keyword stuffing while still rescuing sparse but relevant profiles.
+
+Current reliability checks on the generated artifacts:
+
+| Check | Result |
+|---|---:|
+| Retrieval pool after fusion | 12,325 |
+| Feature rows generated | 12,325 |
+| Cross-encoder rows available | 12,325 |
+| Exact recall top-10K missing from retrieval pool | 0 |
+| Final top-100 outside retrieval/features | 0 |
+| Final top-100 flagged impossible/suspicious/ghost | 0 |
+
+The residual risk is a candidate whose profile is semantically similar enough to rank just outside the semantic base but lacks enough explicit exact-recall evidence to be rescued. That risk cannot be driven to zero without scoring all 100K in detail, but it is acceptable for this challenge because the exact lane is broad, the feature pool is over 12% of the corpus, and the final top-100 all come from the high-confidence semantic base.
 
 ### Phase 1c: Feature Extraction
 
@@ -207,10 +236,11 @@ flowchart TD
     E --> F["Phase 4: score_candidates_vectorized"]
     F --> G["Merge precomputed cross-encoder scores"]
     G --> H["Keep top 500 by Phase 4 blended score"]
-    H --> I["Phase 5: behavioral modifiers"]
-    I --> J["Assign deterministic ranks"]
-    J --> K["Phase 6: factual reasoning"]
-    K --> L["team_BuriBuri.csv"]
+    H --> I["Runtime full-profile calibration"]
+    I --> J["Phase 5: behavioral modifiers"]
+    J --> K["Assign deterministic ranks"]
+    K --> L["Phase 6: factual reasoning"]
+    L --> M["team_BuriBuri.csv"]
 ```
 
 ### Runtime Step Details
@@ -223,10 +253,11 @@ flowchart TD
 6. `src/scorer.py` computes the core technical score.
 7. `src/reranker.py` merges precomputed cross-encoder scores.
 8. The pipeline keeps top 500 by blended Phase 4 score.
-9. `src/behavioral.py` applies final reachability and trust modifiers.
-10. Ranks are assigned by descending score, with deterministic tie handling.
-11. `src/explainer.py` generates the final reasoning text.
-12. The system writes `team_BuriBuri.csv`.
+9. `src/runtime_calibration.py` cheaply reads full profile text for current/recent full-plan JD fit and current services context.
+10. `src/behavioral.py` applies final reachability and trust modifiers.
+11. Ranks are assigned by descending score, with deterministic tie handling.
+12. `src/explainer.py` generates the final reasoning text.
+13. The system writes `team_BuriBuri.csv`.
 
 ## Scoring Model
 
@@ -240,8 +271,8 @@ flowchart LR
     C --> F
     D --> F
     E --> F
-    F --> G["65% handcrafted"]
-    H["Offline cross-encoder score"] --> I["35% cross-encoder"]
+    F --> G["68% handcrafted"]
+    H["Offline cross-encoder score"] --> I["32% cross-encoder"]
     G --> J["Phase 4 blended score"]
     I --> J
     J --> K["Behavioral + trust modifiers"]
@@ -271,8 +302,8 @@ Cross-encoder merge:
 
 | Component | Weight |
 |---|---:|
-| Handcrafted core score | 0.65 |
-| Precomputed cross-encoder score | 0.35 |
+| Handcrafted core score | 0.68 |
+| Precomputed cross-encoder score | 0.32 |
 
 ## Behavioral And Trust Layer
 
@@ -291,11 +322,32 @@ Signals include:
 - interview completion and offer acceptance
 - profile completeness
 - honeypot, ghost, and contradiction penalties
+- current services/consulting context
+- full-profile current/recent evidence of retrieval + vector/hybrid + ranking + evaluation + shipping
 
 Why late modifiers:
 
 - A technically weak but highly available candidate should not outrank a strong JD match.
 - A strong but unreachable candidate should still be penalized because the JD asks for real hiring practicality.
+
+## Postprocessing And Final Reranking
+
+The final top-100 is not the raw retrieval order. Postprocessing exists because the JD is a hiring problem, not a document-search benchmark.
+
+After the 12,325-candidate recall pool is built, `rank.py`:
+
+1. applies the configured runtime RRF cutoff,
+2. computes explicit JD feature scores,
+3. blends handcrafted scoring with precomputed cross-encoder scores,
+4. keeps the top 500 for row-level calibration,
+5. reads the full profile text for current/recent full-plan evidence and current services context,
+6. applies behavioral, logistics, trust, notice-period, location, and social-proof modifiers,
+7. assigns deterministic ranks,
+8. generates factual reasoning from profile facts and extracted snippets.
+
+This postprocessing is where the system becomes recruiter-aligned. A candidate can have strong retrieval evidence and still move down if they look unreachable, have a long notice period, are outside the preferred location policy without relocation, show current services/consulting risk, or carry trust/overclaim concerns. Conversely, a profile with strong current evidence across retrieval, vector/hybrid search, ranking, evaluation, and shipping can be lifted when the raw feature extraction underestimates the complete profile.
+
+This is deliberate. The JD says the ideal output is not a list of the most AI-keyword-heavy profiles; it is a ranked shortlist of people who can plausibly be hired and succeed in the first 90 days.
 
 ## Reasoning Generation
 
@@ -354,13 +406,13 @@ Debug columns include:
 | Runtime retrieval cutoff | 10000 |
 | Phase 4 top slice | 500 |
 | Final output rows | 100 |
-| Runtime for latest `rank.py` run | about 2.14 seconds |
+| Runtime for latest `rank.py` run | about 6.4 seconds locally |
 | Full tests | 94 passed |
 | Submission validator | Pass |
 | Reasoning factuality audit | 0 errors, 0 warnings |
-| Score range in final CSV | 95.86758 to 51.063791 |
-| Mean score | 66.1263 |
-| Median score | 64.9965 |
+| Score range in final CSV | 99.459695 to 54.047821 |
+| Mean score | 68.928685 |
+| Median score | 69.027202 |
 
 ## Artifact Dependency Rules
 
@@ -379,6 +431,20 @@ flowchart TD
 
 Use `rank.py` only when the change affects scoring, behavior, or explanation over existing features. Rebuild preprocessing when the change affects what features or retrieval candidates exist.
 
+### Should Full Preprocessing Be Rerun?
+
+For the current submission, a rerun is not required. The existing artifacts already include the full exact-recall top 10,000, feature extraction for all 12,325 candidates in the fused pool, cross-encoder scores for all 12,325, and a final top-100 with no impossible/suspicious/ghost flags.
+
+A full preprocessing rerun would be justified if:
+
+- the candidate dataset changes,
+- the embedding model or JD query text changes,
+- the semantic retrieval base must be widened from older artifacts,
+- cross-encoder scores need to be regenerated for a changed retrieval pool,
+- feature extraction or exact-recall rules changed in a way that should affect upstream candidate inclusion.
+
+A full rerun may not produce the exact same CSV. If the semantic retrieval base or cross-encoder pool changes, some candidates can enter or leave the feature pool and the final top-100 may move. That is useful only when the expected recall gain outweighs the need to re-audit the regenerated output. With the current artifacts, the expected quality gain is low because the full-corpus exact rescue lane is already included and the final top-100 comes from high-confidence retrieval coverage.
+
 ## Why This Architecture Is Defensible
 
 The approach is built for the spec:
@@ -388,5 +454,7 @@ The approach is built for the spec:
 - Manual review checks reasoning factuality, so explanations are deterministic and evidence-grounded.
 - Honeypots are a Stage 3 risk, so structural trust checks are explicit.
 - The JD cares about production ranking/retrieval/evaluation, so the feature system gives those signals first-class weights.
+- The 100K-to-12.3K funnel is broad and multi-channel, so it is unlikely to discard many true top-tier candidates before reranking.
+- Postprocessing uses behavioral and logistics signals because the JD explicitly values hireability and first-90-day success, not technical fit alone.
 
 The result is not meant to perfectly imitate every human recruiter judgment. It is a scalable approximation that is specific to the JD, reproducible under the constraints, and explainable row by row.

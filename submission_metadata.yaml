@@ -72,11 +72,13 @@ methodology_summary: |
   Honeypot and ghost detection uses structural contradiction rules (impossible timelines,
   repeated copied role descriptions, zero-duration expert claims) using only candidate data.
 
-  Runtime: Parquet artifacts load in <5s. Weighted scoring formula (55% must-haves,
+  Runtime: Parquet artifacts load quickly. Weighted scoring formula (55% must-haves,
   25% product-builder, 15% career quality, 5% nice-to-haves) produces a 0-100 core score.
-  Cross-encoder (35% weight) refines top candidates. Behavioral multipliers apply
-  reachability, strict notice-period penalties, and location adjustments. Reason generator assembles
-  evidence-grounded sentences from precomputed facts — no hallucinations.
+  Cross-encoder (32% weight) refines top candidates while the handcrafted score keeps JD-specific
+  trust, behavior, product-company, and logistics signals dominant. A lightweight full-profile runtime
+  calibration pass checks current/recent full-plan JD fit and current services context for the final slice.
+  Behavioral multipliers apply reachability, notice-period penalties, and location adjustments.
+  Reason generator assembles evidence-grounded sentences from precomputed facts — no hallucinations.
 
 # ============================================================================
 # Declarations

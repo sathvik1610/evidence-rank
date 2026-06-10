@@ -109,7 +109,7 @@ The cross-encoder (`bge-reranker-v2-m3`) runs **entirely offline** in `preproces
 
 **CE-only refresh:** Once the widened retrieval pool looks healthy, run `python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder` on GPU. This refreshes `artifacts/cross_encoder_scores.parquet` for the current retrieval pool without recomputing embeddings, FAISS, BM25, flags, or features.
 
-**CE weight validation:** The current rank-time blend uses 0.65 handcrafted score and 0.35 cross-encoder score. This was raised from 0.20 after top-10 audits showed the handcrafted formula was over-promoting availability/social signals and under-ranking several semantically strong JD matches. The CE is still blended, not used alone, because the handcrafted score carries JD-specific trust, availability, product-company, and disqualifier signals that the cross-encoder cannot reliably model.
+**CE weight validation:** The current rank-time blend uses 0.68 handcrafted score and 0.32 cross-encoder score. This was calibrated after top-10 audits showed the handcrafted formula was over-promoting some availability/social signals while a larger CE share could underweight JD-specific trust, availability, product-company, and disqualifier signals. The CE is still blended, not used alone, because the handcrafted score carries recruiter-context signals that the cross-encoder cannot reliably model.
 
 **Preprocess-time code (in `preprocess.py`):**
 ```python
@@ -143,12 +143,12 @@ scored_df = scored_df.with_columns(
     pl.col("cross_encoder_score").fill_null(pl.col("core_score"))
 )
 
-# Merge: 0.65 handcrafted + 0.35 cross-encoder
+# Merge: 0.68 handcrafted + 0.32 cross-encoder
 # Rationale: CE improves top-10 semantic ordering, while handcrafted features retain
 # trust, availability, product-company, and JD-disqualifier signals.
 scored_df["final_phase4_score"] = (
-    0.65 * scored_df["core_score"] +
-    0.35 * scored_df["cross_encoder_score"]
+    0.68 * scored_df["core_score"] +
+    0.32 * scored_df["cross_encoder_score"]
 )
 ```
 

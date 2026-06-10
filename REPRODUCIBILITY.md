@@ -83,9 +83,10 @@ python validate_submission.py team_BuriBuri.csv
 Expected current behavior:
 
 - writes 100 rows
-- completes in about 2-3 seconds locally with current artifacts
+- completes in about 6-7 seconds locally with current artifacts
 - produces columns `candidate_id,rank,score,reasoning`
 - writes debug trace to `artifacts/ranking_debug.csv`
+- uses a 12,325-candidate precomputed feature pool produced from semantic RRF plus full-corpus exact recall rescue
 
 ## Integrity Declaration
 
@@ -122,6 +123,10 @@ python preprocess.py --candidates ./candidates.jsonl
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 ```
 
+Do not expect a full preprocessing rerun to necessarily reproduce the exact same CSV if retrieval or cross-encoder artifacts change. The final ranker is deterministic for a fixed artifact set, but changing the upstream retrieval pool can admit new candidates and slightly move the top 100.
+
+For the current submission, full preprocessing is not required for correctness. The current feature pool already includes all exact-recall top-10K candidates, feature rows and cross-encoder rows for all 12,325 pooled candidates, and the final top 100 has no impossible/suspicious/ghost flags. A full rerun is mainly useful if you deliberately want to refresh the semantic retrieval base and then spend time comparing the regenerated CSV against the current one.
+
 Use cross-encoder-only refresh when the retrieval pool is current but reranker scores need regeneration:
 
 ```bash
@@ -136,3 +141,4 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 - `rank.py` does not load `torch`, FAISS, FlagEmbedding, or hosted APIs.
 - `team_BuriBuri.csv` should be regenerated, not manually edited.
 - If candidate IDs in the input file do not overlap with feature artifacts, rerun preprocessing for that candidate file.
+- If only scoring weights, behavioral modifiers, runtime calibration, or reasoning templates changed, run `rank.py` only.
