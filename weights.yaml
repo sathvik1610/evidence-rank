@@ -56,8 +56,8 @@ scoring:
   assessment_bonus_value:     0.5   # fractional bonus added to bucket A evidence value
 
   # Cross-Encoder merge at Phase 4
-  cross_encoder_weight:   0.35   # CE score contribution (0.0 to disable)
-  handcrafted_weight:     0.65   # Handcrafted core score contribution (must + CE = 1.0)
+  cross_encoder_weight:   0.32   # CE score contribution (0.0 to disable)
+  handcrafted_weight:     0.68   # Handcrafted core score contribution (must + CE = 1.0)
 
   # JD-intent corrections from manual audit
   eval_trifecta_bonus: 7.0        # retrieval + strong LTR + eval ownership, additive points
@@ -96,9 +96,14 @@ soft_penalties:
   wrong_domain_mult:    0.50  # CV/speech/robotics without NLP/IR
   closed_source_mult:   0.80  # 5+ years no external validation
   target_skill_duration_one_mult:   0.97  # One target skill duration exceeds claimed YoE + buffer
-  target_skill_duration_multi_mult: 0.92  # Multiple noisy target-skill duration contradictions
+  target_skill_duration_multi_mult: 0.92  # Multiple noisy target-skill contradictions; softened for strong career evidence in code
+  target_skill_duration_strong_plan_mult: 0.97
   adjacent_domain_weak_ir_mult:     0.55  # CV/speech/robotics title with weak retrieval/vector/eval evidence
   current_consulting_weak_ir_mult:  0.60  # Current consulting firm plus weak target/product evidence
+  current_services_default_mult:    0.94  # Current services context is a top-rank tie-break risk
+  current_services_strong_fit_mult: 0.97  # Allow strong product/search history, but prefer clean product roles
+  current_services_strong_product_min: 0.70
+  current_services_strong_ir_min:   0.60
   long_notice_weak_eval_mult:       0.70  # >=90 day notice and no evaluation evidence
   bad_logistics_combo_mult:         0.50  # >90d notice plus no relocation outside preferred/welcome cities
   no_reloc_outside_preferred_mult:  0.82  # no relocation outside preferred/welcome cities
@@ -149,7 +154,7 @@ behavioral:
   notice_moderate_days: 90    # <= this → moderate penalty
   notice_ideal_mult:    1.00
   notice_mild_mult:     0.95
-  notice_moderate_mult: 0.85
+  notice_moderate_mult: 0.80
   notice_bad_mult:      0.55  # > notice_moderate_days
 
   # Location modifiers
@@ -192,6 +197,13 @@ behavioral:
   full_plan_band_no_reloc_mild_ce_min: 70.0
   full_plan_band_no_reloc_mild_career_eval_min: 0.80
   full_plan_band_no_reloc_target_contradiction_max: 1
+  runtime_full_plan_min: 0.70
+  runtime_full_plan_bonus_max: 2.5
+  runtime_full_plan_reachable_response_min: 0.50
+  runtime_full_plan_reachable_bonus: 0.75
+  runtime_full_plan_low_response_mult: 0.45
+  runtime_full_plan_long_notice_mult: 0.70
+  runtime_full_plan_high_overclaim_mult: 0.25
 
   # Floor for penalty_mult below which score is forced to 0.0
   penalty_floor_zero: 0.20

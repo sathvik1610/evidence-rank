@@ -142,6 +142,14 @@ SUPPORT_TEMPLATES = [
     "Adds {secondary_name} support: {snippet}"
 ]
 
+FULL_PLAN_SUPPORT_TEMPLATES = [
+    "Recent work maps to the JD's first-90-days arc: retrieval audit, v2 ranking, and evaluation infrastructure",
+    "Current/recent role evidence spans retrieval, ranking, evaluation, and product shipping",
+    "The recent profile evidence supports the full Redrob intelligence-layer mandate, not just keyword AI fit",
+    "This is a full-plan match: retrieval systems, ranking decisions, evaluation rigor, and shipped product work",
+    "Recent career evidence connects the JD's retrieval, matching, evaluation, and recruiter-product needs",
+]
+
 DOMAIN_SHORT_NAMES = {
     "retrieval_search": "retrieval/search",
     "eval_framework": "ranking evaluation",
@@ -329,6 +337,8 @@ def _natural_caveat(concern_text: str) -> str:
             "The main caveat is logistics: the candidate is outside the preferred/welcome cities, "
             "with no relocation signal"
         )
+    if "outside the jd's preferred or welcome city list but relocation is indicated" in lower:
+        return "The main caveat is logistics: the candidate is outside the preferred/welcome cities, but relocation is indicated"
     if "outside the jd's preferred or welcome city list" in lower:
         return "The main caveat is logistics: the candidate is outside the preferred/welcome cities"
     if "located outside india" in lower:
@@ -361,6 +371,8 @@ def _natural_caveat(concern_text: str) -> str:
         return "The profile remains below stronger matches because it does not meet the JD's full technical-depth bar"
     if lower == "overall evidence density is lower than top-tier candidates":
         return "Overall evidence density is lower than the strongest candidates"
+    if lower == "current role is in services/consulting, so product-company transfer is a recruiter check":
+        return "The main caveat is current services/consulting context, so product-company transfer is a recruiter check"
     return f"The main caveat is {_lower_first(clean)}"
 
 
@@ -503,6 +515,19 @@ def get_largest_concern(cand: dict) -> str:
         return "Core IR evidence appears isolated relative to the broader career pattern."
     if cand.get("career_ir_density", 1.0) < 0.40 and cand.get("adjacent_career_ratio", 0.0) >= 0.40:
         return "Broader career pattern leans toward adjacent ML/chatbot/MLOps rather than sustained search or ranking ownership."
+    target_contradictions = cand.get("target_skill_duration_contradiction", 0) or 0
+    skill_contradictions = cand.get("contradiction_skill_duration", 0) or 0
+    try:
+        target_contradictions = int(target_contradictions)
+    except (TypeError, ValueError):
+        target_contradictions = 0
+    try:
+        skill_contradictions = int(skill_contradictions)
+    except (TypeError, ValueError):
+        skill_contradictions = 0
+    if target_contradictions >= 4:
+        total = target_contradictions + skill_contradictions
+        return f"Skill-duration metadata has {total} overclaim signal(s), so duration claims are not used in this explanation."
     location = str(cand.get("beh_location") or "").strip()
     country = str(cand.get("beh_country") or "").strip().lower()
     preferred_fragments = (
@@ -532,20 +557,12 @@ def get_largest_concern(cand: dict) -> str:
     if outside_preferred and not willing:
         return "Location is outside the JD's preferred or welcome city list and relocation is not indicated."
     if outside_preferred:
-        return "Location is outside the JD's preferred or welcome city list."
-    target_contradictions = cand.get("target_skill_duration_contradiction", 0) or 0
-    skill_contradictions = cand.get("contradiction_skill_duration", 0) or 0
-    try:
-        target_contradictions = int(target_contradictions)
-    except (TypeError, ValueError):
-        target_contradictions = 0
-    try:
-        skill_contradictions = int(skill_contradictions)
-    except (TypeError, ValueError):
-        skill_contradictions = 0
-    if target_contradictions > 0 or skill_contradictions > 0:
+        return "Location is outside the JD's preferred or welcome city list but relocation is indicated."
+    if (target_contradictions > 0 or skill_contradictions > 0) and int(cand.get("rank", 100) or 100) > 25:
         total = target_contradictions + skill_contradictions
         return f"Skill-duration metadata has {total} overclaim signal(s), so duration claims are not used in this explanation."
+    if cand.get("runtime_current_services_signal", 0.0) >= 1.0:
+        return "Current role is in services/consulting, so product-company transfer is a recruiter check."
     if cand.get("consulting_flag", False) or cand.get("consulting_only", False):
         return "Career arc leans heavily toward consulting rather than core product ownership."
     if cand.get("code_stopped", False):
@@ -636,7 +653,12 @@ def generate_reasoning(cand: dict) -> str:
     profile_prefix = _profile_prefix(cand)
     identity = profile_prefix if profile_prefix else "Candidate"
     primary_short = DOMAIN_SHORT_NAMES.get(primary_key, primary_name)
-    if rank <= 60 and primary_score >= 3.0 and primary_snippet:
+    if rank > 75 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85:
+        lead = (
+            f"{band_label}: {identity} is technically relevant for the JD, "
+            "but ranks lower because hiring/practicality signals are weaker than the shortlist."
+        )
+    elif rank <= 60 and primary_score >= 3.0 and primary_snippet:
         strong_template = LEAD_TEMPLATES_STRONG.get(primary_key, "")
         if primary_snippet and "{snippet}" in strong_template:
             lead = _finish_sentence(
@@ -653,6 +675,8 @@ def generate_reasoning(cand: dict) -> str:
         else:
             options = LEAD_TEMPLATES_MODERATE.get(primary_key, [f"Profile text shows relevant {primary_name} evidence."])
             lead = _finish_sentence(f"{band_label}: {identity}. {options[_variant(cand, len(options))]}")
+    elif primary_score >= 2.0 and primary_snippet and _explanation_quality(primary_snippet) >= 0:
+        lead = _finish_sentence(f"{band_label}: {identity} has relevant {primary_short} evidence: {primary_snippet}")
     elif primary_score >= 2.0:
         options = LEAD_TEMPLATES_WEAK.get(primary_key, [f"Mentions {primary_name} in profile text, though production depth is less explicit."])
         lead = _finish_sentence(f"{band_label}: {identity}. {options[_variant(cand, len(options))]}")
@@ -664,7 +688,9 @@ def generate_reasoning(cand: dict) -> str:
     # 3. Support sentence
     support = ""
     # Only offer a supportive secondary capability if they are highly ranked and actually have the skill
-    if rank <= 15 and cand.get("career_ir_density", 0.0) >= 0.60:
+    if rank <= 60 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85:
+        support = FULL_PLAN_SUPPORT_TEMPLATES[_variant(cand, len(FULL_PLAN_SUPPORT_TEMPLATES))]
+    elif rank <= 15 and cand.get("career_ir_density", 0.0) >= 0.60:
         secondary_snippet = _snippet_for(snippets, secondary_key) if secondary_key else ""
         if secondary_key and cand.get(secondary_key, 0.0) >= 2.0 and secondary_snippet:
             template = SUPPORT_TEMPLATES[_variant(cand, len(SUPPORT_TEMPLATES))]
@@ -701,6 +727,8 @@ def generate_reasoning(cand: dict) -> str:
         or "outside India" in concern_text
         or "isolated" in concern_text
         or "career pattern" in concern_text
+        or "services/consulting" in concern_text
+        or ("Skill-duration" in concern_text and (rank > 25 or cand.get("target_skill_duration_contradiction", 0) >= 4))
     ):
         caveat = _natural_caveat(concern_text)
     elif rank > 70 and not concern_text:

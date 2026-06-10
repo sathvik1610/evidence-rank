@@ -700,6 +700,13 @@ def run_phase_1d_rrf(candidates=None):
     )
 
     if candidates is not None:
+        ghost_ids = set()
+        if os.path.exists(constants.CANDIDATE_FLAGS_PARQUET):
+            flags_df = pl.read_parquet(constants.CANDIDATE_FLAGS_PARQUET)
+            if "is_ghost" in flags_df.columns:
+                ghost_ids = set(
+                    flags_df.filter(pl.col("is_ghost") == True)["candidate_id"].to_list()
+                )
         exact_ids = build_exact_recall_ranked_list(candidates, ghost_ids=ghost_ids)
         rrf_scores = _rrf([
             dense_ids_v1, dense_ids_recsys, dense_ids_eval, sparse_ids, sparse_ids_bm25, exact_ids

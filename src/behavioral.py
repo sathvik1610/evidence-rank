@@ -45,7 +45,13 @@ def has_adjacent_domain_weak_ir(cand: dict) -> bool:
 
 def has_current_consulting_weak_ir(cand: dict) -> bool:
     company = _current_company(cand)
-    current_consulting = any(firm in company for firm in constants.CONSULTING_FIRMS)
+    industry = (cand.get("runtime_current_role_text") or "").lower()
+    current_consulting = (
+        any(firm in company for firm in constants.CONSULTING_FIRMS)
+        or cand.get("runtime_current_services_signal", 0.0) >= 1.0
+        or "ai services" in industry
+        or "it services" in industry
+    )
     return current_consulting and (
         has_weak_core_ir_evidence(cand)
         or (
@@ -355,9 +361,25 @@ def soft_penalties(cand: dict) -> float:
 
     target_duration_contradictions = cand.get("target_skill_duration_contradiction", 0)
     if target_duration_contradictions >= 2:
-        multiplier *= W["soft_penalties.target_skill_duration_multi_mult"]
+        if (
+            cand.get("runtime_full_plan_signal", 0.0) >= W["behavioral.runtime_full_plan_min"]
+            and cand.get("eval_framework", 0.0) >= W["soft_penalties.weak_ir_eval_threshold"]
+            and cand.get("career_ir_density", 0.0) >= W["soft_penalties.career_ir_density_threshold"]
+        ):
+            multiplier *= W["soft_penalties.target_skill_duration_strong_plan_mult"]
+        else:
+            multiplier *= W["soft_penalties.target_skill_duration_multi_mult"]
     elif target_duration_contradictions == 1:
         multiplier *= W["soft_penalties.target_skill_duration_one_mult"]
+
+    if cand.get("runtime_current_services_signal", 0.0) >= 1.0:
+        if (
+            cand.get("product_builder_score", 0.0) >= W["soft_penalties.current_services_strong_product_min"]
+            and cand.get("career_ir_density", 0.0) >= W["soft_penalties.current_services_strong_ir_min"]
+        ):
+            multiplier *= W["soft_penalties.current_services_strong_fit_mult"]
+        else:
+            multiplier *= W["soft_penalties.current_services_default_mult"]
 
     if has_adjacent_domain_weak_ir(cand):
         multiplier *= W["soft_penalties.adjacent_domain_weak_ir_mult"]
@@ -448,11 +470,33 @@ def compute_final_score(cand: dict, reference_date: date) -> float:
 
     social_boost = social_proof_boost(cand)
 
+    runtime_full_plan = float(cand.get("runtime_full_plan_signal", 0.0) or 0.0)
+    try:
+        response_rate = float(cand.get("beh_recruiter_response_rate", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        response_rate = 0.0
+    try:
+        notice_days = float(cand.get("beh_notice_period_days", 999.0))
+    except (TypeError, ValueError):
+        notice_days = 999.0
+    full_plan_bonus = 0.0
+    if runtime_full_plan >= W["behavioral.runtime_full_plan_min"]:
+        full_plan_bonus = runtime_full_plan * W["behavioral.runtime_full_plan_bonus_max"]
+        if response_rate >= W["behavioral.runtime_full_plan_reachable_response_min"]:
+            full_plan_bonus += W["behavioral.runtime_full_plan_reachable_bonus"]
+        elif response_rate < W["behavioral.low_response_rate_threshold"]:
+            full_plan_bonus *= W["behavioral.runtime_full_plan_low_response_mult"]
+        if notice_days > W["behavioral.notice_moderate_days"]:
+            full_plan_bonus *= W["behavioral.runtime_full_plan_long_notice_mult"]
+        if int(cand.get("target_skill_duration_contradiction", 0) or 0) >= 3:
+            full_plan_bonus *= W["behavioral.runtime_full_plan_high_overclaim_mult"]
+
     base_final = (
         phase4_score * combined_mult
         + ninety_day_bonus
         + elite_plan_bonus
         + social_boost
+        + full_plan_bonus
     )
     final = base_final + full_plan_band_bonus(cand, base_final)
 

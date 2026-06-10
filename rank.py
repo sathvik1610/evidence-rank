@@ -23,6 +23,7 @@ from src.reranker import merge_cross_encoder_scores
 from src.behavioral import compute_final_score, assign_ranks
 from src.explainer import generate_reasoning, get_largest_concern
 from src.weights import W
+from src.runtime_calibration import load_candidate_records, calibrate_candidate
 
 
 def load_candidate_ids(path: str) -> set[str]:
@@ -108,6 +109,18 @@ def main():
     # We now move to python dictionaries for Phase 5 & 6 row-level operations
     # since these are complex heuristic formulas and we only have 500 records.
     candidates = df.to_dicts()
+
+    # Runtime JD calibration: cheap profile-text checks for current/recent
+    # full-plan evidence. This avoids expensive preprocessing while allowing
+    # the final ranker to respect plain-language JD intent in the full profiles.
+    profile_records = load_candidate_records(
+        args.candidates,
+        {str(c.get("candidate_id", "")) for c in candidates},
+    )
+    candidates = [
+        calibrate_candidate(c, profile_records.get(str(c.get("candidate_id", ""))))
+        for c in candidates
+    ]
     
     # Reference date for ghost detection and reachability
     # We load run metadata to get the actual reference time, or default to mid-2026
@@ -161,6 +174,8 @@ def main():
             "score": cand["final_score"],
             "core_score": round(cand.get("core_score", 0.0), 2),
             "ce_score": round(cand.get("ce_score", 0.0), 2),
+            "runtime_full_plan_signal": cand.get("runtime_full_plan_signal", 0.0),
+            "runtime_current_services_signal": cand.get("runtime_current_services_signal", 0.0),
             "reasoning": reason,
             "concern": get_largest_concern(cand)
         })
