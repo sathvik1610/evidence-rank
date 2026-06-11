@@ -123,6 +123,6 @@ Latest local checks:
 ```text
 validate_submission.py team_BuriBuri.csv: valid
 reasoning factuality audit: 100 rows checked, 0 errors, 0 warnings
-pytest: 94 passed
-rank.py runtime: about 6.4 seconds locally
+pytest: 113 passed
+rank.py runtime: about 5.5 seconds locally
 ```

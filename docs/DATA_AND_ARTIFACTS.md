@@ -22,6 +22,12 @@ The structured JD contract used by the extractor is:
 metadata/JD_contract.yaml
 ```
 
+For the released dataset summary, trap assumptions, duplicate-description audit counts, behavioral-twin interpretation, and preprocessing reliability notes, see:
+
+```text
+docs/DATASET_ANALYSIS.md
+```
+
 ## Generated Submission
 
 The final generated CSV is:
@@ -74,7 +80,10 @@ pip install -r requirements-offline.txt
 | `artifacts/candidate_features.parquet` | `preprocess.py` | `rank.py` | JD features, snippets, behavior/profile facts |
 | `artifacts/cross_encoder_scores.parquet` | `preprocess.py` | `rank.py` | Offline BGE reranker scores |
 | `artifacts/run_metadata.json` | `preprocess.py` | `rank.py` | Candidate count and reference date |
-| `artifacts/ranking_debug.csv` | `rank.py` | humans/debug | Debug trace for final top 100 |
+| `artifacts/ranking_debug.csv` | `rank.py` | humans/debug | Debug trace for ranked gate-passing candidates |
+| `artifacts/hard_disqualified_debug.csv` | `rank.py` | humans/debug | Candidates removed before final ranking by JD hard gates |
+| `artifacts/rank_score_gaps.csv` | `rank.py` | humans/debug | Adjacent rank score gaps for confidence review |
+| `artifacts/yoe_distribution.csv` | `rank.py` | humans/debug | YoE diagnostics for Top 10/25/100 |
 
 ## Current Artifact Notes
 
@@ -99,6 +108,8 @@ Current important artifact sizes:
 | `artifacts/candidate_features.parquet` | 0.53 MB |
 | `artifacts/retrieval_scores.parquet` | 0.20 MB |
 | `artifacts/cross_encoder_scores.parquet` | 0.11 MB |
+
+After the strict hard-gate update, regenerated ranking artifacts should also include `artifacts/hard_disqualified_debug.csv`. The official `team_BuriBuri.csv` should contain only candidates that pass the JD hard gates: no missing true must-have bucket without raw-evidence override and no explicit JD disqualifier flag. Notice and location risks remain in `ranking_debug.csv` as strong penalties/caveats, not hard exclusions.
 
 ## Data Governance Notes
 

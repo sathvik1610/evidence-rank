@@ -199,7 +199,7 @@ rank.py  (evaluation machine, ≤ 5 minutes wall clock)
     ├── Load artifacts/cross_encoder_scores.parquet  → CE scores ready for configured pool
     ├── Load artifacts/run_metadata.json             → reference_date
     │   reference_date = stored reference_date, or 2026-06-01 fallback
-    ├── Phase 4: Weighted score + CE merge → top 500
+    ├── Phase 4: Weighted score + CE merge → configurable Phase 5 pool
     ├── Phase 5: Behavioral multipliers → top 100
     └── Phase 6: Reason generation → team_BuriBuri.csv
 ```
@@ -215,7 +215,7 @@ rank.py  (evaluation machine, ≤ 5 minutes wall clock)
 The current `rank.py` logs the major execution checkpoints to stdout:
 - number of feature rows loaded after filtering to the input candidate IDs
 - number of rows retained after the Phase 2 RRF cutoff
-- top-500 Phase 4 slice size
+- configurable Phase 5 candidate-pool size
 - Phase 5 and Phase 6 start messages
 - output CSV path
 - debug trace path

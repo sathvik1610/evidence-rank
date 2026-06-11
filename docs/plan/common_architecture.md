@@ -58,7 +58,7 @@ The system executes in two strictly separated environments:
 - Input guard: read `candidate_id` values from `--candidates` and filter precomputed features to that exact input file. If there is no overlap, exit and require a fresh preprocess run.
 - Phase 2: When `artifacts/retrieval_scores.parquet` exists, join retrieval scores and filter to the configured runtime pool from `weights.yaml` (`retrieval.runtime_top_k`, currently 10,000). Sample `--skip-embed` runs still score all sample candidates.
 - Phase 3: Load precomputed candidate features from parquet (< 5s)
-- Phase 4: Compute core score, merge precomputed cross-encoder scores, then slice top 500 by blended Phase 4 score (< 30s)
+- Phase 4: Compute core score, merge precomputed cross-encoder scores, then slice the configured Phase 5 candidate pool by blended Phase 4 score (< 30s)
 - Phase 5: Behavioral re-ranking + penalization → top 100 (< 10s)
 - Phase 6: Reason generation → final CSV (< 30s)
 - Phase 7: Manual validation (pre-submission, not part of 5-min constraint)
