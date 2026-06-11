@@ -9,8 +9,12 @@ from src.behavioral import (
     has_adjacent_domain_weak_ir, has_current_consulting_weak_ir,
     has_long_notice_weak_eval, yoe_floor_modifier, has_bad_logistics_combo,
     has_short_notice_strong_plan_fit, has_reachable_elite_plan_fit,
-    full_plan_band_bonus,
+    full_plan_band_bonus, missing_must_have_buckets, must_have_gap_multiplier,
+    must_have_score_ceiling, has_top100_must_have_gap, has_notice_risk,
+    has_location_risk, has_true_disqualifier, hard_disqualification_reason,
+    is_hard_disqualified, ce_core_delta,
 )
+from src.runtime_calibration import calibrate_candidate
 from src.weights import W
 
 def test_reachability_multiplier():
@@ -146,13 +150,19 @@ def test_soft_penalties():
     assert has_adjacent_domain_weak_ir(cand_cv_weak) is True
     assert abs(
         soft_penalties(cand_cv_weak)
-        - W["soft_penalties.adjacent_domain_weak_ir_mult"]
+        - (
+            W["soft_penalties.zero_eval_mult"]
+            * W["soft_penalties.zero_core_retrieval_mult"]
+            * W["soft_penalties.zero_vector_hybrid_mult"]
+            * W["soft_penalties.multiple_must_have_zero_mult"]
+            * W["soft_penalties.adjacent_domain_weak_ir_mult"]
+        )
     ) < 1e-9
 
     cand_cv_strong = {
         "profile_current_title": "Computer Vision Engineer",
-        "retrieval_search": 2.0,
-        "vector_db_hybrid": 2.0,
+        "retrieval_search": 3.0,
+        "vector_db_hybrid": 3.0,
         "eval_framework": 2.0,
     }
     assert has_adjacent_domain_weak_ir(cand_cv_strong) is False
@@ -168,7 +178,13 @@ def test_soft_penalties():
     assert has_current_consulting_weak_ir(cand_consulting_weak) is True
     assert abs(
         soft_penalties(cand_consulting_weak)
-        - W["soft_penalties.current_consulting_weak_ir_mult"]
+        - (
+            W["soft_penalties.zero_eval_mult"]
+            * W["soft_penalties.zero_core_retrieval_mult"]
+            * W["soft_penalties.zero_vector_hybrid_mult"]
+            * W["soft_penalties.multiple_must_have_zero_mult"]
+            * W["soft_penalties.current_consulting_weak_ir_mult"]
+        )
     ) < 1e-9
 
     cand_long_notice = {
@@ -178,7 +194,11 @@ def test_soft_penalties():
     assert has_long_notice_weak_eval(cand_long_notice) is True
     assert abs(
         soft_penalties(cand_long_notice)
-        - W["soft_penalties.long_notice_weak_eval_mult"]
+        - (
+            W["soft_penalties.zero_eval_mult"]
+            * W["soft_penalties.long_notice_weak_eval_mult"]
+            * W["soft_penalties.long_notice_extreme_mult"]
+        )
     ) < 1e-9
     assert has_long_notice_weak_eval({
         "beh_notice_period_days": W["behavioral.notice_moderate_days"],
@@ -209,7 +229,7 @@ def test_soft_penalties():
         "beh_location": "Indore",
         "beh_country": "India",
         "beh_willing_to_relocate": False,
-        "retrieval_search": 2.0,
+        "retrieval_search": 3.0,
         "eval_framework": 2.0,
         "ninety_day_alignment": 0.90,
     }
@@ -221,6 +241,230 @@ def test_soft_penalties():
 
     # Keyword stuffer
     assert soft_penalties({"keyword_stuffer_flag": True}) < 1.0
+
+    short_only = soft_penalties({"title_velocity_flag": True})
+    title_bump = soft_penalties({"title_velocity_flag": True, "title_bump_flag": True})
+    title_chaser = soft_penalties({"title_velocity_flag": True, "title_bump_flag": True, "title_chaser_flag": True})
+    assert title_bump < short_only
+    assert title_chaser < title_bump
+
+
+def test_missing_must_have_gap_multiplier_is_strong():
+    complete = {
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+    }
+    assert missing_must_have_buckets(complete) == []
+    assert must_have_gap_multiplier(complete) == 1.0
+
+    rank14_like = {
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 0.0,
+        "ltr_reranking": 0.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+    }
+    assert missing_must_have_buckets(rank14_like) == ["vector/hybrid search"]
+    assert must_have_gap_multiplier(rank14_like) < W["soft_penalties.zero_vector_hybrid_mult"]
+    assert must_have_score_ceiling(rank14_like) == W["behavioral.double_zero_must_have_score_ceiling"]
+    assert has_floor_exempt_penalty(rank14_like) is True
+    vector_corrob_rescued = dict(rank14_like)
+    vector_corrob_rescued["runtime_corroborated_vector_signal"] = 1.0
+    assert missing_must_have_buckets(vector_corrob_rescued) == []
+
+    vector_skill_only = dict(rank14_like)
+    vector_skill_only["runtime_vector_skill_signal"] = 1.0
+    assert missing_must_have_buckets(vector_skill_only) == ["vector/hybrid search"]
+
+    single_gap = dict(complete)
+    single_gap["python_coding"] = 0.0
+    assert missing_must_have_buckets(single_gap) == ["Python"]
+    assert must_have_score_ceiling(single_gap) == W["behavioral.single_must_have_gap_score_ceiling"]
+    assert has_top100_must_have_gap(single_gap) is True
+    python_rescued = dict(single_gap)
+    python_rescued["runtime_career_python_signal"] = 1.0
+    assert missing_must_have_buckets(python_rescued) == []
+    assert has_top100_must_have_gap(python_rescued) is False
+    override = dict(single_gap)
+    override["must_have_raw_evidence_override"] = True
+    assert has_top100_must_have_gap(override) is False
+
+    multi_gap = {
+        "retrieval_search": 0.0,
+        "sys_experience_score": 0.0,
+        "vector_db_hybrid": 0.0,
+        "ltr_reranking": 0.0,
+        "eval_framework": 0.0,
+        "python_coding": 0.0,
+    }
+    assert len(missing_must_have_buckets(multi_gap)) == 4
+    assert must_have_gap_multiplier(multi_gap) < 0.05
+    assert must_have_score_ceiling(multi_gap) == W["behavioral.double_zero_must_have_score_ceiling"]
+
+    eval_rescued = {
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "eval_framework": 0.0,
+        "runtime_career_eval_signal": 1.0,
+        "python_coding": 1.0,
+    }
+    assert missing_must_have_buckets(eval_rescued) == []
+
+    eval_adjacent_rescued = {
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "eval_framework": 0.0,
+        "runtime_career_eval_adjacent_signal": 1.0,
+        "python_coding": 1.0,
+    }
+    assert missing_must_have_buckets(eval_adjacent_rescued) == []
+
+
+def test_runtime_vector_corroboration_requires_concrete_tool():
+    cand = {}
+    vague_vector_profile = {
+        "profile": {
+            "current_title": "Senior AI Engineer",
+            "summary": "Built shipped search and ranking systems for real users.",
+        },
+        "career_history": [
+            {
+                "title": "Senior AI Engineer",
+                "company": "ProductCo",
+                "industry": "Internet",
+                "description": "Owned production search ranking with evaluation dashboards and real users.",
+            }
+        ],
+        "skills": [{"name": "Vector Representations"}],
+    }
+    calibrated = calibrate_candidate(cand, vague_vector_profile)
+    assert calibrated["runtime_vector_skill_signal"] == 1.0
+    assert calibrated["runtime_concrete_vector_tool_signal"] == 0.0
+    assert calibrated["runtime_corroborated_vector_signal"] == 0.0
+
+    concrete = calibrate_candidate({}, {
+        **vague_vector_profile,
+        "skills": [{"name": "Qdrant"}, {"name": "Sentence Transformers"}],
+    })
+    assert concrete["runtime_concrete_vector_tool_signal"] == 1.0
+    assert concrete["runtime_corroborated_vector_signal"] == 1.0
+
+
+def test_runtime_full_plan_current_role_cannot_be_carried_by_previous_role():
+    profile = {
+        "profile": {
+            "current_title": "ML Engineer",
+            "summary": "Applied ML engineer.",
+        },
+        "career_history": [
+            {
+                "title": "ML Engineer",
+                "company": "CurrentCo",
+                "industry": "SaaS",
+                "description": "Owned churn prediction dashboards and MLflow model monitoring.",
+            },
+            {
+                "title": "Search Engineer",
+                "company": "PreviousCo",
+                "industry": "Internet",
+                "description": (
+                    "Owned production hybrid retrieval and ranking with FAISS, "
+                    "evaluation harnesses, A/B tests, and real users."
+                ),
+            },
+        ],
+        "skills": [{"name": "FAISS"}, {"name": "Python"}],
+    }
+    calibrated = calibrate_candidate({}, profile)
+    assert calibrated["runtime_current_retrieval_signal"] == 0.0
+    assert calibrated["runtime_full_plan_signal"] <= W["behavioral.runtime_full_plan_current_role_cap"]
+
+
+def test_new_penalties_are_moderate_for_two_mild_flags():
+    base = {
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+    }
+    mild_two_flags = dict(base, adjacent_career_ratio=0.51, core_score=86.0, ce_score=50.0)
+    penalty = soft_penalties(mild_two_flags)
+    expected = W["soft_penalties.adjacent_career_half_mult"] * W["soft_penalties.ce_delta_moderate_mult"]
+    assert penalty == pytest.approx(expected)
+    assert penalty > 0.80
+
+    severe_stack = dict(
+        base,
+        adjacent_career_ratio=0.66,
+        core_score=90.0,
+        ce_score=48.0,
+        beh_notice_period_days=120,
+        beh_location="Trivandrum",
+        beh_country="India",
+        beh_willing_to_relocate=False,
+    )
+    assert soft_penalties(severe_stack) < penalty
+
+
+def test_true_disqualifiers_get_kill_switch_score():
+    ref = date(2026, 6, 1)
+    cand = {
+        "final_phase4_score": 90.0,
+        "keyword_stuffer_flag": True,
+    }
+    assert has_true_disqualifier(cand) is True
+    assert compute_final_score(cand, ref) == round(90.0 * W["behavioral.disqualifier_multiplier"], 6)
+
+
+def test_must_have_and_logistics_exclusion_gates():
+    ref = date(2026, 6, 1)
+    clean = {
+        "final_phase4_score": 90.0,
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+        "beh_notice_period_days": 30,
+        "beh_country": "India",
+        "beh_location": "Pune",
+    }
+    missing_python = dict(clean)
+    missing_python["python_coding"] = 0.0
+    assert compute_final_score(missing_python, ref) == round(90.0 * W["behavioral.must_have_missing_multiplier"], 6)
+    assert is_hard_disqualified(missing_python) is True
+    assert "missing true must-have evidence" in hard_disqualification_reason(missing_python)
+
+    long_notice = dict(clean)
+    long_notice["beh_notice_period_days"] = W["behavioral.long_notice_exclusion_days"]
+    assert has_notice_risk(long_notice) is True
+    assert hard_disqualification_reason(long_notice) == ""
+    assert compute_final_score(long_notice, ref) > 10.0
+    assert compute_final_score(long_notice, ref) < compute_final_score(clean, ref)
+
+    bad_location = dict(clean)
+    bad_location["beh_location"] = "Kolkata"
+    bad_location["beh_willing_to_relocate"] = False
+    assert has_location_risk(bad_location) is True
+    assert hard_disqualification_reason(bad_location) == ""
+    assert compute_final_score(bad_location, ref) > 10.0
+    assert compute_final_score(bad_location, ref) < compute_final_score(clean, ref)
+
+    unknown_city = dict(clean)
+    unknown_city["beh_location"] = ""
+    unknown_city["beh_willing_to_relocate"] = False
+    assert has_location_risk(unknown_city) is False
+
+
+def test_ce_core_delta_helper():
+    assert ce_core_delta({"core_score": 84.34, "ce_score": 33.32}) == pytest.approx(51.02)
 
 def test_yoe_floor_modifier():
     assert yoe_floor_modifier({"profile_years_of_experience": 5.0}) == 1.0
@@ -237,6 +481,7 @@ def test_has_floor_exempt_penalty():
         "vector_db_hybrid": 1.0,
         "eval_framework": 0.0,
     }) is True
+    assert has_floor_exempt_penalty({"title_chaser_flag": True}) is True
     assert has_floor_exempt_penalty({}) is False
 
 def test_compute_final_score():
@@ -247,7 +492,7 @@ def test_compute_final_score():
         "final_phase4_score": 80.0,
         "impossible_flag": True
     }
-    assert abs(compute_final_score(cand_imp, ref) - 80.0 * W["behavioral.honeypot_multiplier"]) < 1e-9
+    assert abs(compute_final_score(cand_imp, ref) - 80.0 * W["behavioral.disqualifier_multiplier"]) < 1e-9
 
     # Normal computation
     cand_normal = {
@@ -269,12 +514,38 @@ def test_compute_final_score():
     assert score <= 120.0
 
 
+def test_runtime_full_plan_bonus_is_capped_by_must_have_gap():
+    ref = date(2026, 6, 1)
+    base = {
+        "final_phase4_score": 80.0,
+        "runtime_full_plan_signal": W["behavioral.runtime_full_plan_min"],
+        "beh_recruiter_response_rate": 0.90,
+        "beh_notice_period_days": 30,
+        "beh_location": "Pune",
+        "beh_country": "India",
+        "beh_willing_to_relocate": True,
+        "seniority_score": 1.0,
+        "writing_signal": 1.0,
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+        "career_ir_density": 1.0,
+    }
+    gap = dict(base)
+    gap["vector_db_hybrid"] = 0.0
+    gap["ltr_reranking"] = 0.0
+    assert compute_final_score(gap, ref) < compute_final_score(base, ref)
+    assert compute_final_score(gap, ref) <= W["behavioral.double_zero_must_have_score_ceiling"]
+
+
 def test_reachable_elite_plan_bonus_is_narrow():
     ref = date(2026, 6, 1)
     base = {
         "final_phase4_score": 70.0,
-        "retrieval_search": 2.0,
-        "vector_db_hybrid": 2.0,
+        "retrieval_search": 3.0,
+        "vector_db_hybrid": 3.0,
         "eval_framework": 2.0,
         "ltr_reranking": 3.0,
         "career_eval_density": 1.0,

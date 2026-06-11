@@ -9,6 +9,18 @@ gap acknowledgment.
 
 import json
 import re
+from src.behavioral import (
+    ce_core_delta,
+    ce_ceiling_sanity_risk,
+    ce_rescue_with_core_gap,
+    core_over_ce_disagreement,
+    has_location_risk,
+    has_notice_risk,
+    has_full_plan_coverage,
+    has_missing_github_activity,
+    has_top100_must_have_gap,
+    missing_must_have_buckets,
+)
 
 STRENGTH_DOMAINS = [
     ("retrieval_search", "Retrieval Systems"),
@@ -148,6 +160,12 @@ FULL_PLAN_SUPPORT_TEMPLATES = [
     "The recent profile evidence supports the full Redrob intelligence-layer mandate, not just keyword AI fit",
     "This is a full-plan match: retrieval systems, ranking decisions, evaluation rigor, and shipped product work",
     "Recent career evidence connects the JD's retrieval, matching, evaluation, and recruiter-product needs",
+]
+
+PARTIAL_PLAN_SUPPORT_TEMPLATES = [
+    "This is a partial 90-day-plan fit; missing must-have evidence should be screened directly",
+    "Recent evidence is relevant, but the profile is not a clean full-plan match",
+    "The profile covers part of the Redrob intelligence-layer mandate, with a must-have gap to verify",
 ]
 
 DOMAIN_SHORT_NAMES = {
@@ -351,6 +369,12 @@ def _natural_caveat(concern_text: str) -> str:
             if "duration claims" not in lower
             else clean
         )
+    if "missing must-have evidence" in lower:
+        return clean
+    if "cross-encoder and handcrafted score strongly disagree" in lower:
+        return clean
+    if "github activity is missing" in lower:
+        return clean
     if lower == "ranking-evaluation evidence is lighter than stronger candidates":
         return "Compared with stronger candidates, the profile has lighter evidence of rigorous ranking evaluation"
     if lower == "vector or hybrid-search evidence is less complete than the top band":
@@ -505,6 +529,25 @@ def get_largest_concern(cand: dict) -> str:
     # Ranked by severity/impact
     if cand.get("impossible_flag", False) or cand.get("suspicious_flag", False):
         return "Profile flagged as highly suspicious or containing impossible timelines."
+    missing = missing_must_have_buckets(cand)
+    if has_top100_must_have_gap(cand):
+        return f"Missing must-have evidence for {', '.join(missing)}; not shortlist-fit for this JD unless raw text proves an extraction miss."
+    if has_notice_risk(cand):
+        return "120-day notice is a major hiring-friction risk; keep only as a lower-band backup if technical fit is exceptional."
+    if has_location_risk(cand):
+        return "Location/no-relocation combination is a major hiring-friction risk for this role."
+    if len(missing) >= 2:
+        return f"Missing must-have evidence for {', '.join(missing)}; treat as a capped/manual-review profile."
+    if ce_rescue_with_core_gap(cand):
+        return "Cross-encoder and handcrafted score strongly disagree while must-have evidence is incomplete."
+    if core_over_ce_disagreement(cand) > 40.0:
+        return "Handcrafted score is much higher than semantic CE score; regex evidence may be over-reading adjacent work."
+    if ce_core_delta(cand) > 30.0:
+        return "Cross-encoder and handcrafted score strongly disagree; raw evidence needs manual review."
+    if ce_ceiling_sanity_risk(cand):
+        return "Cross-encoder score is saturated at the ceiling; treat it as a sanity-check case, not automatic proof of fit."
+    if missing:
+        return f"Missing must-have evidence for {missing[0]}; screen this directly before treating as shortlist-ready."
     if cand.get("research_only", False):
         return "Research-heavy background with limited production ML exposure."
     if cand.get("wrong_domain", False):
@@ -515,6 +558,10 @@ def get_largest_concern(cand: dict) -> str:
         return "Core IR evidence appears isolated relative to the broader career pattern."
     if cand.get("career_ir_density", 1.0) < 0.40 and cand.get("adjacent_career_ratio", 0.0) >= 0.40:
         return "Broader career pattern leans toward adjacent ML/chatbot/MLOps rather than sustained search or ranking ownership."
+    if cand.get("adjacent_career_ratio", 0.0) >= 0.65:
+        return "Most measured career months are adjacent ML/chatbot/MLOps rather than sustained search or ranking ownership."
+    if cand.get("adjacent_career_ratio", 0.0) >= 0.50:
+        return "Over half of measured career months are adjacent ML/chatbot/MLOps, so sustained IR ownership needs screening."
     target_contradictions = cand.get("target_skill_duration_contradiction", 0) or 0
     skill_contradictions = cand.get("contradiction_skill_duration", 0) or 0
     try:
@@ -525,9 +572,11 @@ def get_largest_concern(cand: dict) -> str:
         skill_contradictions = int(skill_contradictions)
     except (TypeError, ValueError):
         skill_contradictions = 0
-    if target_contradictions >= 4:
+    if target_contradictions >= 1:
         total = target_contradictions + skill_contradictions
         return f"Skill-duration metadata has {total} overclaim signal(s), so duration claims are not used in this explanation."
+    if has_missing_github_activity(cand):
+        return "GitHub activity is missing/sentinel-valued, so social-proof confidence should not rely on it."
     location = str(cand.get("beh_location") or "").strip()
     country = str(cand.get("beh_country") or "").strip().lower()
     preferred_fragments = (
@@ -567,8 +616,22 @@ def get_largest_concern(cand: dict) -> str:
         return "Career arc leans heavily toward consulting rather than core product ownership."
     if cand.get("code_stopped", False):
         return "Seniority indicates candidate may have shifted away from hands-on coding."
+    if cand.get("title_chaser_flag", False):
+        return "Career trajectory shows title-chasing risk across short company tenures, which the JD treats as not a fit."
+    if cand.get("title_bump_flag", False):
+        return "Recent company switches include title progression, so long-term fit should be checked."
     if cand.get("title_velocity_flag", False):
-        return "Frequent title changes noted across recent roles."
+        return "Short average tenure across recent roles is a retention caveat for this founding-team role."
+    return ""
+
+
+def _title_risk_phrase(cand: dict) -> str:
+    if cand.get("title_chaser_flag", False):
+        return "career trajectory shows title-chasing risk across short company tenures"
+    if cand.get("title_bump_flag", False):
+        return "recent company switches include title progression"
+    if cand.get("title_velocity_flag", False):
+        return "short average tenure across recent roles"
     return ""
 
 
@@ -654,10 +717,15 @@ def generate_reasoning(cand: dict) -> str:
     identity = profile_prefix if profile_prefix else "Candidate"
     primary_short = DOMAIN_SHORT_NAMES.get(primary_key, primary_name)
     if rank > 75 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85:
-        lead = (
-            f"{band_label}: {identity} is technically relevant for the JD, "
-            "but ranks lower because hiring/practicality signals are weaker than the shortlist."
-        )
+        if primary_score >= 2.0 and primary_snippet and _explanation_quality(primary_snippet) >= 0:
+            lead = _finish_sentence(
+                f"{band_label}: {identity} has relevant {primary_short} evidence: {primary_snippet}"
+            )
+        else:
+            lead = (
+                f"{band_label}: {identity} is technically relevant for the JD, "
+                "but ranks lower because hiring/practicality signals are weaker than the shortlist."
+            )
     elif rank <= 60 and primary_score >= 3.0 and primary_snippet:
         strong_template = LEAD_TEMPLATES_STRONG.get(primary_key, "")
         if primary_snippet and "{snippet}" in strong_template:
@@ -688,8 +756,15 @@ def generate_reasoning(cand: dict) -> str:
     # 3. Support sentence
     support = ""
     # Only offer a supportive secondary capability if they are highly ranked and actually have the skill
-    if rank <= 60 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85:
+    clean_full_plan = has_full_plan_coverage(cand) and not missing_must_have_buckets(cand)
+    if rank <= 60 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85 and clean_full_plan:
         support = FULL_PLAN_SUPPORT_TEMPLATES[_variant(cand, len(FULL_PLAN_SUPPORT_TEMPLATES))]
+    elif rank <= 60 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85:
+        missing = missing_must_have_buckets(cand)
+        if missing:
+            support = f"Not a clean full-plan match; missing must-have evidence for {', '.join(missing)}"
+        else:
+            support = PARTIAL_PLAN_SUPPORT_TEMPLATES[_variant(cand, len(PARTIAL_PLAN_SUPPORT_TEMPLATES))]
     elif rank <= 15 and cand.get("career_ir_density", 0.0) >= 0.60:
         secondary_snippet = _snippet_for(snippets, secondary_key) if secondary_key else ""
         if secondary_key and cand.get(secondary_key, 0.0) >= 2.0 and secondary_snippet:
@@ -728,7 +803,7 @@ def generate_reasoning(cand: dict) -> str:
         or "isolated" in concern_text
         or "career pattern" in concern_text
         or "services/consulting" in concern_text
-        or ("Skill-duration" in concern_text and (rank > 25 or cand.get("target_skill_duration_contradiction", 0) >= 4))
+        or "Skill-duration" in concern_text
     ):
         caveat = _natural_caveat(concern_text)
     elif rank > 70 and not concern_text:
@@ -739,9 +814,14 @@ def generate_reasoning(cand: dict) -> str:
         else:
             caveat = _natural_caveat("overall evidence density is lower than top-tier candidates")
 
+    title_caveat = ""
+    title_phrase = _title_risk_phrase(cand)
+    if title_phrase and rank > 25 and title_phrase not in caveat:
+        title_caveat = f"Long-term fit caveat: {title_phrase}"
+
     behavioral = _behavioral_phrase(cand)
 
-    second_parts = [p.rstrip(".") for p in [support, behavioral, caveat] if p]
+    second_parts = [p.rstrip(".") for p in [support, behavioral, caveat, title_caveat] if p]
     if second_parts:
         return f"{lead} {'; '.join(second_parts)}."
     return lead

@@ -14,12 +14,21 @@ def test_get_90day_milestone():
 
 def test_get_largest_concern():
     assert "highly suspicious" in get_largest_concern({"impossible_flag": True})
+    assert "not shortlist-fit" in get_largest_concern({"python_coding": 0.0})
+    assert "120-day notice" in get_largest_concern({"beh_notice_period_days": 120})
+    assert "Location/no-relocation" in get_largest_concern({
+        "beh_country": "India",
+        "beh_location": "Kolkata",
+        "beh_willing_to_relocate": False,
+    })
     assert "Research-heavy" in get_largest_concern({"research_only": True})
     assert "NLP/Search" in get_largest_concern({"wrong_domain": True})
     assert "LLM wrappers" in get_largest_concern({"langchain_only_flag": True})
     assert "consulting" in get_largest_concern({"consulting_only": True})
     assert "hands-on coding" in get_largest_concern({"code_stopped": True})
-    assert "Frequent title changes" in get_largest_concern({"title_velocity_flag": True})
+    assert "Short average tenure" in get_largest_concern({"title_velocity_flag": True})
+    assert "title progression" in get_largest_concern({"title_bump_flag": True})
+    assert "title-chasing risk" in get_largest_concern({"title_chaser_flag": True})
     assert get_largest_concern({}) == ""
 
 def test_profile_prefix():
@@ -95,6 +104,91 @@ def test_generate_reasoning_top_rank_moderate_is_positive():
     assert "82% recruiter response" in reason
     assert "Hiring fit is helped by" in reason
 
+
+def test_generate_reasoning_missing_vector_blocks_full_plan_match():
+    cand = {
+        "candidate_id": "CAND_GAP",
+        "profile_current_title": "Senior AI Engineer",
+        "profile_current_company": "Meta",
+        "profile_years_of_experience": 7.9,
+        "rank": 4,
+        "retrieval_search": 2.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 0.0,
+        "ltr_reranking": 3.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+        "runtime_full_plan_signal": 0.85,
+        "snippets_json": '{"ltr_reranking": "Owned learning-to-rank and relevance labeling work."}',
+    }
+    reason = generate_reasoning(cand)
+    lower = reason.lower()
+    assert "This is a full-plan match" not in reason
+    assert "not a clean full-plan match" in lower or "missing must-have evidence" in lower
+    assert "vector/hybrid" in reason
+
+
+def test_generate_reasoning_duration_contradiction_always_caveats():
+    cand = {
+        "candidate_id": "CAND_DURATION",
+        "profile_current_title": "Lead AI Engineer",
+        "profile_current_company": "Razorpay",
+        "profile_years_of_experience": 6.7,
+        "rank": 6,
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "ltr_reranking": 3.0,
+        "eval_framework": 2.0,
+        "python_coding": 2.0,
+        "target_skill_duration_contradiction": 1,
+        "snippets_json": '{"retrieval_search": "Built BM25 and dense retrieval for recruiter search."}',
+    }
+    reason = generate_reasoning(cand)
+    assert "Skill-duration metadata has 1 overclaim signal" in reason
+    assert "duration claims are not used" in reason
+
+
+def test_generate_reasoning_large_ce_core_delta_caveats():
+    cand = {
+        "candidate_id": "CAND_DELTA",
+        "profile_current_title": "Senior Data Scientist",
+        "profile_current_company": "Amazon",
+        "profile_years_of_experience": 7.6,
+        "rank": 67,
+        "core_score": 84.34,
+        "ce_score": 33.32,
+        "retrieval_search": 3.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 3.0,
+        "ltr_reranking": 3.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+        "snippets_json": '{"ltr_reranking": "Trained and shipped multiple ranking models."}',
+    }
+    reason = generate_reasoning(cand)
+    assert "Cross-encoder and handcrafted score strongly disagree" in reason
+
+
+def test_generate_reasoning_low_rank_uses_concrete_snippet_when_available():
+    cand = {
+        "candidate_id": "CAND_LOW",
+        "profile_current_title": "Search Engineer",
+        "profile_current_company": "Rephrase.ai",
+        "profile_years_of_experience": 4.8,
+        "rank": 88,
+        "retrieval_search": 2.0,
+        "sys_experience_score": 1.0,
+        "vector_db_hybrid": 2.0,
+        "eval_framework": 2.0,
+        "python_coding": 1.0,
+        "runtime_full_plan_signal": 0.85,
+        "snippets_json": '{"retrieval_search": "Owned semantic search with FAISS and relevance labels."}',
+    }
+    reason = generate_reasoning(cand)
+    assert "Owned semantic search with FAISS" in reason
+    assert "technically relevant for the JD" not in reason
+
 def test_generate_reasoning_low_rank():
     cand = {
         "profile_current_title": "Junior QA",
@@ -104,7 +198,7 @@ def test_generate_reasoning_low_rank():
         "core_score": 35.0
     }
     reason = generate_reasoning(cand)
-    assert "does not meet the JD's full technical-depth bar" in reason
+    assert "Missing must-have evidence for core retrieval/ranking" in reason
     assert "Rank is limited" not in reason
 
 
