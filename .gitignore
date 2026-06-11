@@ -32,7 +32,7 @@ Thumbs.db
 
 # Project artifacts (generated during pipeline)
 artifacts/*.jsonl
-artifacts/ranking_debug.csv
+artifacts/*.csv
 
 # Keep plan backup in git
 !artifacts/plan_backup.md
