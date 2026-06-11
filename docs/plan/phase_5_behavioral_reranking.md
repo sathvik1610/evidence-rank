@@ -42,7 +42,8 @@ The group is floor-capped through `behavioral.logistical_floor` in `weights.yaml
 `soft_penalties()` applies:
 
 - contradiction consistency penalty
-- target-skill duration contradiction penalty
+- target-skill duration contradiction penalty (by count)
+- target-skill overclaim magnitude penalty (by maximum months overclaimed)
 - title velocity
 - code-stopped risk
 - LangChain-only risk
@@ -64,7 +65,7 @@ Generic penalty values live in `weights.yaml`. JD-specific penalty values that a
 
 The weak-IR thresholds, current-consulting product-builder threshold, adjacent-domain title terms, remote-work aliases, below-band YoE cutoffs, and long-notice cutoff are all tunable in `weights.yaml`; they are not hardcoded in `src/behavioral.py`.
 
-Target-skill duration contradictions are intentionally narrower than generic skill-duration noise. Phase 1f only counts expert/advanced claims for retrieval, ranking, recommendation, search, vector DB, or reranking terms that exceed claimed YoE plus the configured buffer. These remain light soft penalties because skill-duration metadata is noisy and overlapping. Hard impossible flags rely on contradictions visible in the candidate JSONL, such as copied role histories.
+Target-skill duration contradictions are intentionally narrower than generic skill-duration noise. Phase 1f only counts expert/advanced claims for retrieval, ranking, recommendation, search, vector DB, or reranking terms that exceed claimed YoE plus the configured buffer. The system penalizes these through two mechanisms: a base penalty for the count of contradictions, and a scaling magnitude penalty based on `max_target_skill_overclaim_months`. While minor overclaims remain light soft penalties because skill-duration metadata is noisy, massive overclaims (e.g., >12 or >24 months over actual YoE) trigger steeper severity modifiers. Hard impossible flags rely on absolute contradictions visible in the candidate JSONL, such as copied role histories.
 
 Candidates below 5 years are not hard-filtered, because the JD explicitly says the 5-9 year range is a preference. They do receive a soft Phase 5 penalty so top ranks remain biased toward the author's intended senior IC profile unless the technical evidence is unusually strong.
 

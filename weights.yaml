@@ -10,6 +10,12 @@
 # Version: 1.1.1 (wired — scoring values consumed by code)
 
 # ---------------------------------------------------------------------------
+# Runtime ranking controls
+# ---------------------------------------------------------------------------
+ranking:
+  phase5_candidate_pool: 1000  # wide enough to backfill Top 100 after strict hard gates
+
+# ---------------------------------------------------------------------------
 # Phase 4 — Core Scoring weights
 # Must sum to 1.0 across the four buckets.
 # ---------------------------------------------------------------------------
@@ -86,7 +92,9 @@ career_multipliers:
 soft_penalties:
   consistency_drop_per_contradiction:  0.15  # Per contradiction (skill/assessment)
   consistency_floor:                   0.30  # Min consistency_score
-  title_velocity_mult:  0.80  # Avg tenure < 18mo across 3+ roles
+  title_velocity_mult:  0.95  # Plain short tenure: recruiter caveat, not title chasing by itself
+  title_bump_mult:      0.94  # Title bumps are a check, but stable product builders stay viable
+  title_chaser_mult:    0.15  # JD-literal title chasing: near-fatal "not a fit" pattern
   code_stopped_mult:    0.75  # Architect/VP/Director with YoE > 8
   langchain_only_mult:  0.45  # LangChain-only AI under 12 months, no pre-LLM ML
   remote_pref_mult:     0.93  # Prefers remote for a flexible-hybrid role
@@ -95,9 +103,9 @@ soft_penalties:
   research_only_mult:   0.40  # No engineering titles
   wrong_domain_mult:    0.50  # CV/speech/robotics without NLP/IR
   closed_source_mult:   0.80  # 5+ years no external validation
-  target_skill_duration_one_mult:   0.97  # One target skill duration exceeds claimed YoE + buffer
-  target_skill_duration_multi_mult: 0.92  # Multiple noisy target-skill contradictions; softened for strong career evidence in code
-  target_skill_duration_strong_plan_mult: 0.97
+  target_skill_duration_one_mult:   0.92  # One target skill duration exceeds claimed YoE + buffer
+  target_skill_duration_multi_mult: 0.80  # Multiple noisy target-skill contradictions; softened for strong career evidence in code
+  target_skill_duration_strong_plan_mult: 0.86
   adjacent_domain_weak_ir_mult:     0.55  # CV/speech/robotics title with weak retrieval/vector/eval evidence
   current_consulting_weak_ir_mult:  0.60  # Current consulting firm plus weak target/product evidence
   current_services_default_mult:    0.94  # Current services context is a top-rank tie-break risk
@@ -105,11 +113,29 @@ soft_penalties:
   current_services_strong_product_min: 0.70
   current_services_strong_ir_min:   0.60
   long_notice_weak_eval_mult:       0.70  # >=90 day notice and no evaluation evidence
+  long_notice_extreme_mult:         0.88  # >=120 day notice should remain lower-band unless exceptional
   bad_logistics_combo_mult:         0.50  # >90d notice plus no relocation outside preferred/welcome cities
   no_reloc_outside_preferred_mult:  0.82  # no relocation outside preferred/welcome cities
-  no_reloc_strong_fit_mult:         0.96  # evidence-rich India candidate, short notice, no relocation
+  no_reloc_strong_fit_mult:         0.90  # evidence-rich India candidate, short notice, no relocation
   isolated_template_risk_mult:      0.76  # core IR appears isolated in an adjacent/chatbot/churn career
   low_career_ir_density_mult:       0.92  # weak majority career support for IR/ranking/eval
+  low_career_ir_density_strict_mult: 0.82 # high-rank guard when sustained IR support is weak
+  adjacent_career_half_mult:         0.83 # >=50% adjacent career should not look like sustained IR ownership
+  adjacent_career_high_mult:         0.75 # >=65% adjacent career is a stronger relevance drag
+  high_adjacent_career_mult:         0.86 # legacy adjacent ML/chatbot/MLOps penalty
+  ce_delta_moderate_threshold:       35.0 # core >> CE suggests regex overread
+  ce_delta_high_threshold:           34.0
+  ce_delta_moderate_mult:            0.94
+  ce_delta_high_mult:                0.90
+  ce_ceiling_threshold:              99.5 # perfect CE is a sanity-check flag, not a free pass
+  ce_ceiling_mult:                   0.97
+  zero_vector_hybrid_mult:           0.55 # vector/hybrid is a JD must-have
+  zero_eval_mult:                    0.60 # ranking/evaluation is a JD must-have
+  zero_python_mult:                  0.82 # Python is a JD must-have
+  zero_core_retrieval_mult:          0.45 # no retrieval/search or recsys/ranking project evidence
+  double_zero_vector_ltr_mult:       0.42 # rank-14 style severe vector + LTR gap
+  multiple_must_have_zero_mult:      0.35 # multiple must-have zero buckets should not reach top bands
+  must_have_gap_floor_exempt:        true # do not rescue missing must-haves via combined floor
   weak_ir_retrieval_threshold:      2.0   # Below project-level retrieval evidence
   weak_ir_vector_threshold:         2.0   # Below project-level vector/hybrid evidence
   weak_ir_eval_threshold:           1.0   # No meaningful ranking-eval evidence
@@ -204,6 +230,16 @@ behavioral:
   runtime_full_plan_low_response_mult: 0.45
   runtime_full_plan_long_notice_mult: 0.70
   runtime_full_plan_high_overclaim_mult: 0.25
+  runtime_full_plan_must_have_gap_mult: 0.20
+  runtime_full_plan_current_role_cap: 0.70 # previous role may support, not fully carry current readiness
+  disqualifier_multiplier: 0.01 # true JD should-not-have profiles are not Top-100 viable
+  must_have_missing_multiplier: 0.01 # missing true must-have evidence is not Top-100 viable
+  long_notice_exclusion_days: 120 # 120-day notice is severe hiring friction
+  long_notice_exclusion_multiplier: 0.03 # legacy fallback only; logistics no longer short-circuit score
+  location_exclusion_multiplier: 0.05 # legacy fallback only; logistics no longer short-circuit score
+  single_must_have_gap_score_ceiling: 78.0 # a single zero must-have cannot be treated as top-band clean
+  severe_must_have_gap_score_ceiling: 62.0 # severe zero must-haves should land in review/backup territory
+  double_zero_must_have_score_ceiling: 55.0 # vector/hybrid plus LTR zero is a Rank-14-style calibration failure
 
   # Floor for penalty_mult below which score is forced to 0.0
   penalty_floor_zero: 0.20
@@ -237,6 +273,10 @@ social_proof:
 features:
   deploy_signal_hit_cap: 5.0      # Unique production/scale hits needed for full deploy_signal
   depth_signal_role_cap: 2.0      # Relevant roles needed for full depth_signal
+  large_company_size_floor: 5001  # Small corroboration for mature product-company exposure
+  large_product_company_product_ratio_min: 0.70
+  large_product_company_exposure_min: 0.50
+  large_product_company_bonus: 0.015
   writing_strong_desc_len: 150
   writing_ok_desc_len: 60
   writing_strong_mult: 1.00
