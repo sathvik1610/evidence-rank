@@ -5,7 +5,8 @@ import sys
 sys.path.insert(0, ".")
 from src.features import (
     extract_features, compute_product_ratio, score_skill_bucket,
-    score_career_quality, score_fit_gaps, _build_career_text, extract_behavioral
+    score_career_quality, score_fit_gaps, _build_career_text, extract_behavioral,
+    compute_career_density
 )
 
 @pytest.fixture
@@ -159,6 +160,89 @@ def test_skill_snippet_prefers_concrete_role_evidence_over_generic_summary():
     assert "Strong background" not in snippets["retrieval_search"]
     assert "BM25" in snippets["retrieval_search"] or "dense retrieval" in snippets["retrieval_search"]
 
+
+def test_duplicate_role_descriptions_do_not_multiply_depth_density():
+    repeated = (
+        "Built a RAG-based ranking pipeline serving 50M+ queries per month for an "
+        "internal recruiter-facing search product. The architecture combined BM25 "
+        "+ dense retrieval with FAISS and an LLM reranker. Designed NDCG, MRR, "
+        "and recall@K evaluation calibrated against online A/B engagement metrics."
+    )
+    distinct = (
+        "Fine-tuned LLaMA and Mistral variants using LoRA and QLoRA for "
+        "candidate-JD matching. Built the preference data pipeline, ranking "
+        "evaluation harness, and Kubernetes deployment for production inference."
+    )
+    candidate = {
+        "candidate_id": "TEST_DEDUPE_DEPTH",
+        "profile": {"current_title": "Senior ML Engineer", "years_of_experience": 7.0},
+        "career_history": [
+            {"title": "Senior ML Engineer", "company": "Zomato", "industry": "Food Delivery", "company_size": "5001-10000", "duration_months": 26, "is_current": True, "description": repeated},
+            {"title": "Staff ML Engineer", "company": "Google", "industry": "Internet", "company_size": "10001+", "duration_months": 18, "is_current": False, "description": repeated},
+            {"title": "Senior ML Engineer", "company": "Flipkart", "industry": "E-commerce", "company_size": "10001+", "duration_months": 42, "is_current": False, "description": distinct},
+        ],
+        "skills": [],
+        "redrob_signals": {},
+        "education": [],
+    }
+    flags = {"product_ratio": 1.0, "consulting_only": False, "research_only": False, "wrong_domain": False}
+    features = extract_features(candidate, flags)
+
+    assert features["core_ir_role_count"] == 2
+    assert features["eval_role_count"] == 2
+    assert features["depth_signal"] == 0.5
+    assert features["career_ir_density"] == pytest.approx(68 / 86, abs=0.001)
+    assert features["career_eval_density"] == pytest.approx(68 / 86, abs=0.001)
+    assert features["large_product_company_exposure"] == 1.0
+
+
+def test_embedding_ranker_language_counts_for_career_density():
+    career = [
+        {
+            "title": "Senior ML Engineer - Search & Ranking",
+            "company": "ProductCo",
+            "duration_months": 38,
+            "description": (
+                "Led the migration from keyword-based to embedding-based search "
+                "across a 30M+ candidate corpus. Designed three successive ranker "
+                "variants and ran them in A/B testing alongside the legacy keyword "
+                "system. The final embedding ranker improved recruiter engagement."
+            ),
+        },
+        {
+            "title": "Backend Engineer",
+            "company": "OtherCo",
+            "duration_months": 12,
+            "description": "Built internal APIs and observability dashboards.",
+        },
+    ]
+
+    density = compute_career_density(career)
+
+    assert density["core_ir_role_count"] == 1
+    assert density["eval_role_count"] == 1
+    assert density["career_ir_density"] == pytest.approx(38 / 50, abs=0.001)
+    assert density["career_eval_density"] == pytest.approx(38 / 50, abs=0.001)
+
+
+def test_generic_ab_testing_without_core_ir_does_not_count_as_eval_density():
+    career = [
+        {
+            "title": "Growth Analyst",
+            "company": "MarketingCo",
+            "duration_months": 24,
+            "description": "Ran A/B testing for landing pages and email campaigns.",
+        }
+    ]
+
+    density = compute_career_density(career)
+
+    assert density["core_ir_role_count"] == 0
+    assert density["eval_role_count"] == 0
+    assert density["career_ir_density"] == 0
+    assert density["career_eval_density"] == 0
+
+
 def test_consulting_only_candidate():
     """Pure consulting candidate."""
     consulting_cand = {
@@ -203,6 +287,74 @@ def test_langchain_only_candidate():
     f_lc = extract_features(lc_cand, flags_lc)
     assert f_lc["langchain_only_flag"] is True
     assert f_lc["seniority_score"] < 1.0
+
+
+def test_title_chaser_requires_title_inflation_not_just_short_tenure():
+    candidate = {
+        "candidate_id": "TEST_SHORT_TENURE",
+        "profile": {"current_title": "Search Engineer", "years_of_experience": 6.0},
+        "career_history": [
+            {"title": "Search Engineer", "company": "ProductD", "industry": "Product", "duration_months": 12, "is_current": True, "start_date": "2025-01-01", "description": "Built production retrieval systems."},
+            {"title": "NLP Engineer", "company": "ProductC", "industry": "Product", "duration_months": 15, "is_current": False, "start_date": "2023-09-01", "description": "Shipped search ranking features."},
+            {"title": "Applied ML Engineer", "company": "ProductB", "industry": "Product", "duration_months": 16, "is_current": False, "start_date": "2022-04-01", "description": "Built recommendations."},
+            {"title": "ML Engineer", "company": "ProductA", "industry": "Product", "duration_months": 17, "is_current": False, "start_date": "2020-10-01", "description": "Built production ML."},
+        ],
+        "skills": [],
+        "redrob_signals": {},
+        "education": [],
+    }
+    flags = {"product_ratio": 1.0, "consulting_only": False, "research_only": False, "wrong_domain": False}
+    features = extract_features(candidate, flags)
+
+    assert features["short_tenure_flag"] is True
+    assert features["title_bump_flag"] is False
+    assert features["title_chaser_flag"] is False
+
+
+def test_title_chaser_flags_jd_literal_pattern_without_stable_product_tenure():
+    candidate = {
+        "candidate_id": "TEST_TITLE_CHASER",
+        "profile": {"current_title": "Staff Machine Learning Engineer", "years_of_experience": 6.0},
+        "career_history": [
+            {"title": "Staff Machine Learning Engineer", "company": "StartupD", "industry": "Product", "duration_months": 10, "is_current": True, "start_date": "2025-08-01", "description": "Owned ML systems."},
+            {"title": "Lead AI Engineer", "company": "StartupC", "industry": "Product", "duration_months": 18, "is_current": False, "start_date": "2024-01-01", "description": "Led ranking work."},
+            {"title": "Senior ML Engineer", "company": "StartupB", "industry": "Product", "duration_months": 17, "is_current": False, "start_date": "2022-07-01", "description": "Built retrieval."},
+            {"title": "ML Engineer", "company": "StartupA", "industry": "Product", "duration_months": 16, "is_current": False, "start_date": "2021-02-01", "description": "Built ML services."},
+        ],
+        "skills": [],
+        "redrob_signals": {},
+        "education": [],
+    }
+    flags = {"product_ratio": 1.0, "consulting_only": False, "research_only": False, "wrong_domain": False}
+    features = extract_features(candidate, flags)
+
+    assert features["title_bump_flag"] is True
+    assert features["title_chaser_flag"] is True
+
+
+def test_stable_current_tenure_blocks_ordinary_title_bump_penalty():
+    candidate = {
+        "candidate_id": "TEST_STABLE_STAFF",
+        "profile": {"current_title": "Staff Machine Learning Engineer", "years_of_experience": 8.8},
+        "career_history": [
+            {"title": "Staff Machine Learning Engineer", "company": "Salesforce", "industry": "Software", "duration_months": 38, "is_current": True, "start_date": "2023-04-13", "description": "Owned production ranking and retrieval systems."},
+            {"title": "Staff Machine Learning Engineer", "company": "Aganitha", "industry": "AI/ML", "duration_months": 12, "is_current": False, "start_date": "2022-04-18", "description": "Built applied ML systems."},
+            {"title": "Lead AI Engineer", "company": "Swiggy", "industry": "Food Delivery", "duration_months": 43, "is_current": False, "start_date": "2018-09-06", "description": "Shipped search and recommendation systems."},
+            {"title": "Senior Machine Learning Engineer", "company": "Haptik", "industry": "Conversational AI", "duration_months": 12, "is_current": False, "start_date": "2017-08-28", "description": "Built NLP systems."},
+        ],
+        "skills": [],
+        "redrob_signals": {},
+        "education": [],
+    }
+    flags = {"product_ratio": 1.0, "consulting_only": False, "research_only": False, "wrong_domain": False}
+    features = extract_features(candidate, flags)
+
+    assert features["current_tenure_months"] == 38
+    assert features["max_tenure_months"] == 43
+    assert features["stable_tenure_flag"] is True
+    assert features["title_bump_flag"] is False
+    assert features["title_chaser_flag"] is False
+
 
 def test_adversarial_empty_candidate():
     """Empty candidate (all fields missing)."""

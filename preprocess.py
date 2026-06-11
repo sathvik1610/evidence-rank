@@ -32,6 +32,20 @@ from src.features import extract_features, compute_product_ratio, _build_career_
 from src.weights import W
 from src.jd_intelligence import build_feature_contract, build_jd_intelligence
 
+EVAL_ADJACENT_RECALL_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\bengagement signals?\b",
+        r"\bimplicit[-\s]+feedback\b",
+        r"\bclick signals?\b",
+        r"\bconversion signals?\b",
+        r"\bfeedback loops?\b",
+        r"\bquality regression\b",
+        r"\bretrieval[-\s]+quality regression\b",
+        r"\bgradient[-\s]+boosted re[-\s]+ranking\b",
+    )
+]
+
 def get_embedding_model():
     import torch
     from FlagEmbedding import BGEM3FlagModel
@@ -287,6 +301,17 @@ def _check_impossible_flag(candidate: dict) -> bool:
         and assessment_scores[s.get("name")] < 40 
         for s in skills
     ):
+        return True
+
+    # I-6b: Official honeypot-style trap from submission_spec.txt:
+    # many expert claims with zero usage duration. The corpus audit showed
+    # isolated expert-zero skills exist, but candidate-level piles do not,
+    # so this stays narrow and avoids punishing ordinary synthetic noise.
+    expert_zero_count = sum(
+        1 for s in skills
+        if s.get("proficiency") == "expert" and (s.get("duration_months") or 0) <= 0
+    )
+    if expert_zero_count >= 8:
         return True
 
     # I-7: Long role descriptions copied verbatim across three or more
@@ -567,27 +592,37 @@ def _score_exact_recall_candidate(candidate: dict, compiled_patterns: dict[str, 
     vector_skills = _count_pattern_hits(skills_text, compiled_patterns["vector"])
     eval_desc = _count_pattern_hits(desc_text, compiled_patterns["eval"])
     eval_skills = _count_pattern_hits(skills_text, compiled_patterns["eval"])
+    eval_adjacent_desc = _count_pattern_hits(desc_text, EVAL_ADJACENT_RECALL_PATTERNS)
     python_hits = _count_pattern_hits(desc_text + " " + skills_text, compiled_patterns["python"])
     production_hits = _count_pattern_hits(desc_text, compiled_patterns["production"])
+    production_core = production_hits > 0 and (primary_desc > 0 or vector_desc > 0)
+    production_vector = production_hits > 0 and vector_desc > 0
+    eval_career = eval_desc > 0 or (eval_adjacent_desc > 0 and production_core)
 
     # Cap each component so verbose profiles do not dominate by repetition.
     score = (
-        6.0 * min(primary_desc, 4)
+        7.0 * min(primary_desc, 4)
         + 3.0 * min(primary_title, 3)
         + 2.0 * min(primary_summary, 2)
-        + 1.5 * min(primary_skills, 5)
-        + 3.0 * min(vector_desc, 3)
-        + 1.0 * min(vector_skills, 4)
-        + 3.0 * min(eval_desc, 3)
-        + 1.0 * min(eval_skills, 3)
+        + 0.75 * min(primary_skills, 5)
+        + 4.0 * min(vector_desc, 3)
+        + 0.50 * min(vector_skills, 4)
+        + 4.0 * min(eval_desc, 3)
+        + 2.0 * min(eval_adjacent_desc, 2)
+        + 0.25 * min(eval_skills, 3)
         + 0.75 * min(python_hits, 3)
-        + 2.5 * min(production_hits, 4)
+        + 3.0 * min(production_hits, 4)
+        + (6.0 if production_core else 0.0)
+        + (4.0 if production_vector else 0.0)
+        + (4.0 if eval_career else 0.0)
     )
 
     # Require either career-description evidence or multiple corroborating fields.
     # This suppresses pure skill-list stuffing while still rescuing sparse profiles.
     if primary_desc == 0 and primary_title == 0 and primary_skills < 2:
         return 0.0
+    if primary_desc == 0 and production_hits == 0 and vector_desc == 0 and eval_desc == 0:
+        score *= 0.55
 
     yoe = profile.get("years_of_experience")
     if isinstance(yoe, (int, float)):

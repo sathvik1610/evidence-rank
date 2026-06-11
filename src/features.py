@@ -64,6 +64,28 @@ def _build_career_text(candidate: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _normalize_description_for_dedupe(text: str) -> str:
+    """Normalize exact repeated role descriptions for evidence de-duplication."""
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _dedupe_roles_for_semantic_evidence(career: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Keep role structure intact elsewhere, but avoid counting the same long role
+    paragraph as independent retrieval/ranking/eval depth across companies.
+    """
+    seen_descriptions = set()
+    semantic_roles: List[Dict[str, Any]] = []
+    for role in career:
+        desc = _normalize_description_for_dedupe(role.get("description", ""))
+        if len(desc) >= 160:
+            if desc in seen_descriptions:
+                continue
+            seen_descriptions.add(desc)
+        semantic_roles.append(role)
+    return semantic_roles
+
+
 def _skill_names_lower(candidate: Dict[str, Any]) -> List[str]:
     """Return a list of lowercase skill names."""
     return [s.get("name", "").lower() for s in candidate.get("skills", [])]
@@ -175,11 +197,16 @@ def score_skill_bucket(
         else:
             score = 0.0
 
-        # Assessment bonus: verified high score for a matching skill
+        # Assessment bonus: corroborates career evidence, never upgrades skill-only claims.
         for s in candidate.get("skills", []):
             if any(re.search(kw, s.get("name", ""), re.IGNORECASE) for kw in keywords):
                 asc = assessment_scores.get(s["name"])
-                if asc is not None and asc >= W["scoring.assessment_bonus_threshold"] and score >= 1:
+                if (
+                    asc is not None
+                    and asc >= W["scoring.assessment_bonus_threshold"]
+                    and career_evidence_snippets
+                    and score >= 2
+                ):
                     score = min(score + W["scoring.assessment_bonus_value"], 3.0)
                     break  # Apply bonus once per bucket
 
@@ -242,6 +269,21 @@ def _role_has(patterns: List[str], text: str) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
 
+_CORE_ANCHORED_AB_TEST_RE = re.compile(
+    r"\b(?:a/b|ab)[\s._/-]+test(?:ing|s)?\b",
+    re.IGNORECASE,
+)
+
+
+def _role_has_eval_evidence(text: str, has_core: bool) -> bool:
+    if _role_has(EVALUATION_PATTERNS, text):
+        return True
+    # The JD explicitly values A/B interpretation for ranking systems, but
+    # generic A/B testing appears in many non-ML growth/marketing profiles.
+    # Count it only when the same role already has core search/ranking evidence.
+    return has_core and bool(_CORE_ANCHORED_AB_TEST_RE.search(text))
+
+
 def compute_career_density(career: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Measure whether IR/ranking/eval is a sustained career pattern.
@@ -251,6 +293,7 @@ def compute_career_density(career: List[Dict[str, Any]]) -> Dict[str, Any]:
     months are churn/MLOps/chatbot/CV work, that one template should not dominate
     the top-10 ranking.
     """
+    semantic_career = _dedupe_roles_for_semantic_evidence(career)
     total_months = 0.0
     core_months = 0.0
     eval_months = 0.0
@@ -260,6 +303,10 @@ def compute_career_density(career: List[Dict[str, Any]]) -> Dict[str, Any]:
     adjacent_roles = 0
 
     for role in career:
+        months = float(role.get("duration_months") or 0.0)
+        total_months += months if months > 0 else 1.0
+
+    for role in semantic_career:
         role_text = " ".join(
             str(role.get(k) or "")
             for k in ("title", "description", "industry")
@@ -267,10 +314,9 @@ def compute_career_density(career: List[Dict[str, Any]]) -> Dict[str, Any]:
         months = float(role.get("duration_months") or 0.0)
         if months <= 0:
             months = 1.0
-        total_months += months
 
         has_core = _role_has(_CORE_ROLE_PATTERNS, role_text)
-        has_eval = _role_has(EVALUATION_PATTERNS, role_text)
+        has_eval = _role_has_eval_evidence(role_text, has_core)
         has_adjacent = _role_has(_ADJACENT_CAREER_PATTERNS, role_text)
 
         if has_core:
@@ -279,7 +325,16 @@ def compute_career_density(career: List[Dict[str, Any]]) -> Dict[str, Any]:
         if has_eval:
             eval_roles += 1
             eval_months += months
-        if has_adjacent:
+
+    for role in career:
+        role_text = " ".join(
+            str(role.get(k) or "")
+            for k in ("title", "description", "industry")
+        )
+        months = float(role.get("duration_months") or 0.0)
+        if months <= 0:
+            months = 1.0
+        if _role_has(_ADJACENT_CAREER_PATTERNS, role_text):
             adjacent_roles += 1
             adjacent_months += months
 
@@ -337,6 +392,36 @@ def compute_product_ratio(candidate: Dict[str, Any]) -> float:
     return round(1.0 - (consulting_months / total_months), 4)
 
 
+def _company_size_floor(size: str) -> int:
+    text = str(size or "").strip().lower().replace(",", "")
+    if not text:
+        return 0
+    if text.endswith("+"):
+        text = text[:-1]
+    if "-" in text:
+        text = text.split("-", 1)[0]
+    try:
+        return int(float(text))
+    except ValueError:
+        return 0
+
+
+def compute_large_product_company_exposure(candidate: Dict[str, Any]) -> float:
+    """Small corroborative signal for operating in mature product orgs."""
+    career = candidate.get("career_history", [])
+    total_months = sum(r.get("duration_months", 0) or 0 for r in career)
+    if total_months <= 0:
+        return 0.0
+
+    large_product_months = sum(
+        r.get("duration_months", 0) or 0
+        for r in career
+        if _is_productish_role(r)
+        and _company_size_floor(r.get("company_size")) >= W["features.large_company_size_floor"]
+    )
+    return round(large_product_months / total_months, 4)
+
+
 def score_career_quality(
     candidate: Dict[str, Any],
     career_text: str,
@@ -349,9 +434,11 @@ def score_career_quality(
     flags: candidate flags from Phase 1f (consulting_only, research_only, wrong_domain)
     """
     career = candidate.get("career_history", [])
+    semantic_career = _dedupe_roles_for_semantic_evidence(career)
 
     # Product ratio: fraction of career at product companies (also used in product_builder)
     product_ratio = flags.get("product_ratio", compute_product_ratio(candidate))
+    large_company_exposure = compute_large_product_company_exposure(candidate)
 
     # Deploy signal: count of unique production signals in full career text
     deploy_count = sum(
@@ -372,7 +459,7 @@ def score_career_quality(
 
     # Depth signal: retrieval/ranking work appears across multiple roles
     roles_with_retrieval = sum(
-        1 for role in career
+        1 for role in semantic_career
         if any(
             re.search(p, role.get("description", ""), re.IGNORECASE)
             for p in RETRIEVAL_PATTERNS + RANKING_PATTERNS
@@ -431,6 +518,11 @@ def score_career_quality(
     )
     if density["career_ir_density"] >= 0.60 and density["core_ir_role_count"] >= 2:
         product_builder_score += 0.04
+    if (
+        product_ratio >= W["features.large_product_company_product_ratio_min"]
+        and large_company_exposure >= W["features.large_product_company_exposure_min"]
+    ):
+        product_builder_score += W["features.large_product_company_bonus"]
     if density["isolated_template_risk"]:
         product_builder_score *= 0.90
     # Disqualifier multipliers (consulting/research backgrounds penalised)
@@ -450,6 +542,7 @@ def score_career_quality(
         "writing_signal":        writing_signal,
         "sys_experience_score":  sys_experience_score,
         "product_builder_score": round(min(product_builder_score, 1.0), 4),
+        "large_product_company_exposure": large_company_exposure,
         "ownership_signal":      ownership_signal,
         **density,
     }
@@ -464,6 +557,141 @@ _STOPPED_CODING_TITLES = frozenset(JD_FEATURE_CONTRACT["stopped_coding_titles"])
 _HANDS_ON_TITLE_TERMS = frozenset(JD_FEATURE_CONTRACT["hands_on_title_terms"])
 _FRAMEWORK_DEMO_TERMS = JD_FEATURE_CONTRACT["framework_demo_terms"]
 _PRE_LLM_PRODUCTION_TERMS = JD_FEATURE_CONTRACT["pre_llm_production_terms"]
+
+_TITLE_BAND_PATTERNS = (
+    (5, re.compile(r"\b(principal|distinguished)\b", re.IGNORECASE)),
+    (4, re.compile(r"\bstaff\b", re.IGNORECASE)),
+    (3, re.compile(r"\b(lead|tech lead|engineering manager|manager|head|architect)\b", re.IGNORECASE)),
+    (2, re.compile(r"\b(senior|sr\.?|sde\s*iii|data scientist iii|ml\s*iii)\b", re.IGNORECASE)),
+    (1, re.compile(r"\b(engineer|scientist|developer|analyst|researcher|specialist|sde|mle)\b", re.IGNORECASE)),
+)
+
+
+def _title_seniority_band(title: str | None) -> int:
+    text = title or ""
+    for band, pattern in _TITLE_BAND_PATTERNS:
+        if pattern.search(text):
+            return band
+    return 0
+
+
+def _is_productish_role(role: Dict[str, Any]) -> bool:
+    text = f"{role.get('industry', '')} {role.get('company', '')}".lower()
+    services_terms = (
+        "it services",
+        "consulting",
+        "outsourcing",
+        "services",
+        "ai services",
+        "professional services",
+        "system integration",
+        "client delivery",
+        "staffing",
+    )
+    return not any(term in text for term in services_terms)
+
+
+def _compute_title_velocity_signals(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """Separate ordinary job hopping from JD-literal title chasing."""
+    career = candidate.get("career_history", []) or []
+    if len(career) < 2:
+        return {
+            "avg_past_tenure_months": -1.0,
+            "avg_all_tenure_months": -1.0,
+            "max_tenure_months": 0.0,
+            "current_tenure_months": 0.0,
+            "short_role_ratio": 0.0,
+            "stable_tenure_flag": False,
+            "short_tenure_flag": False,
+            "title_bump_flag": False,
+            "title_chaser_flag": False,
+            "title_company_bump_count": 0,
+        }
+
+    past_roles = [r for r in career if not r.get("is_current")]
+    valid_durations = [
+        r.get("duration_months") for r in past_roles
+        if r.get("duration_months") is not None
+    ]
+    avg_tenure = -1.0
+    if past_roles and len(valid_durations) == len(past_roles):
+        avg_tenure = float(sum(valid_durations) / len(valid_durations))
+
+    all_durations = [
+        r.get("duration_months") or 0
+        for r in career
+        if r.get("duration_months") is not None
+    ]
+    avg_all_tenure = float(sum(all_durations) / len(all_durations)) if all_durations else -1.0
+    max_tenure = float(max(all_durations)) if all_durations else 0.0
+    current_tenure = float(max(
+        (r.get("duration_months") or 0)
+        for r in career
+        if r.get("is_current")
+    ) if any(r.get("is_current") for r in career) else 0.0)
+    short_role_ratio = (
+        sum(1 for months in all_durations if months <= 18) / len(all_durations)
+        if all_durations else 0.0
+    )
+
+    chron = sorted(career, key=lambda r: str(r.get("start_date") or ""))
+    bands = [_title_seniority_band(r.get("title")) for r in chron]
+    companies = {
+        str(r.get("company") or "").strip().lower()
+        for r in career
+        if str(r.get("company") or "").strip()
+    }
+    switches = max(0, len(companies) - 1)
+    company_bumps = 0
+    literal_jd_ladder = False
+    for idx in range(1, len(chron)):
+        prev_band = bands[idx - 1]
+        curr_band = bands[idx]
+        if curr_band > prev_band and chron[idx].get("company") != chron[idx - 1].get("company"):
+            company_bumps += 1
+        if (prev_band == 2 and curr_band in (4, 5)) or (prev_band == 4 and curr_band == 5):
+            literal_jd_ladder = True
+
+    current_band = _title_seniority_band(candidate.get("profile", {}).get("current_title"))
+    has_stable_product_tenure = any(
+        (r.get("duration_months") or 0) >= 30 and _is_productish_role(r)
+        for r in career
+    )
+    has_stable_tenure = has_stable_product_tenure or current_tenure >= 30 or max_tenure >= 36
+
+    short_tenure = (
+        len(career) >= 3
+        and short_role_ratio >= 0.50
+        and not has_stable_tenure
+    )
+    title_bump = (
+        len(career) >= 3
+        and switches >= 2
+        and short_role_ratio > 0.50
+        and company_bumps >= 1
+        and not has_stable_tenure
+    )
+    title_chaser = (
+        len(career) >= 4
+        and switches >= 3
+        and short_role_ratio > 0.50
+        and company_bumps >= 2
+        and (current_band >= 4 or literal_jd_ladder)
+        and not has_stable_tenure
+    )
+
+    return {
+        "avg_past_tenure_months": round(avg_tenure, 2),
+        "avg_all_tenure_months": round(avg_all_tenure, 2),
+        "max_tenure_months": round(max_tenure, 2),
+        "current_tenure_months": round(current_tenure, 2),
+        "short_role_ratio": round(short_role_ratio, 4),
+        "stable_tenure_flag": has_stable_tenure,
+        "short_tenure_flag": short_tenure,
+        "title_bump_flag": title_bump,
+        "title_chaser_flag": title_chaser,
+        "title_company_bump_count": company_bumps,
+    }
 
 
 def score_fit_gaps(
@@ -480,18 +708,7 @@ def score_fit_gaps(
     profile = candidate.get("profile", {})
     bucket_a = bucket_a or {}
 
-    # --- Title velocity: avg tenure < 18 months across 3+ roles ---
-    # Exclude current role (duration still accumulating)
-    past_roles = career[1:] if len(career) > 1 else []
-    valid_durations = [
-        r.get("duration_months") for r in past_roles
-        if r.get("duration_months") is not None
-    ]
-    if len(past_roles) > 0 and len(valid_durations) == len(past_roles):
-        avg_tenure = sum(valid_durations) / len(valid_durations)
-        title_velocity_flag = (avg_tenure < 18.0) and (len(career) >= 3)
-    else:
-        title_velocity_flag = False  # Fail open if durations missing
+    title_signals = _compute_title_velocity_signals(candidate)
 
     # --- Consulting flag (from Phase 1 flags) ---
     consulting_flag = flags.get("consulting_only", False)
@@ -535,13 +752,20 @@ def score_fit_gaps(
     has_pre_llm_production = any(
         re.search(p, career_text, re.IGNORECASE) for p in _PRE_LLM_PRODUCTION_TERMS
     )
-    ai_skill_months = sum(
-        s.get("duration_months", 0) or 0
-        for s in candidate.get("skills", [])
-        if any(kw in s.get("name", "").lower() for kw in _FRAMEWORK_DEMO_TERMS + ["llm", "gpt", "ai"])
+    has_career_retrieval_eval_production = any(
+        re.search(pattern, career_text, re.IGNORECASE)
+        for pattern in (
+            RETRIEVAL_PATTERNS
+            + RANKING_PATTERNS
+            + RECOMMENDATION_PATTERNS
+            + EVALUATION_PATTERNS
+            + PRODUCTION_PATTERNS
+        )
     )
     langchain_only_flag = (
-        has_framework_demo and not has_pre_llm_production and ai_skill_months < 12
+        has_framework_demo
+        and not has_pre_llm_production
+        and not has_career_retrieval_eval_production
     )
 
     ai_skill_count = 0
@@ -568,7 +792,17 @@ def score_fit_gaps(
     closed_source_flag = (yoe >= 5) and not external_validation
 
     return {
-        "title_velocity_flag":  title_velocity_flag,
+        "title_velocity_flag":  title_signals["short_tenure_flag"],
+        "short_tenure_flag":    title_signals["short_tenure_flag"],
+        "title_bump_flag":      title_signals["title_bump_flag"],
+        "title_chaser_flag":    title_signals["title_chaser_flag"],
+        "avg_past_tenure_months": title_signals["avg_past_tenure_months"],
+        "avg_all_tenure_months": title_signals["avg_all_tenure_months"],
+        "max_tenure_months": title_signals["max_tenure_months"],
+        "current_tenure_months": title_signals["current_tenure_months"],
+        "short_role_ratio": title_signals["short_role_ratio"],
+        "stable_tenure_flag": title_signals["stable_tenure_flag"],
+        "title_company_bump_count": title_signals["title_company_bump_count"],
         "consulting_flag":      consulting_flag,
         "external_validation":  external_validation,
         "code_stopped":         code_stopped,
@@ -725,6 +959,7 @@ def extract_features(
         "writing_signal":         bucket_b["writing_signal"],
         "sys_experience_score":   bucket_b["sys_experience_score"],
         "product_builder_score":  bucket_b["product_builder_score"],
+        "large_product_company_exposure": bucket_b["large_product_company_exposure"],
         "ownership_signal":       bucket_b["ownership_signal"],
         "career_ir_density":      bucket_b["career_ir_density"],
         "career_eval_density":    bucket_b["career_eval_density"],
@@ -735,6 +970,16 @@ def extract_features(
         "isolated_template_risk": bucket_b["isolated_template_risk"],
         # Bucket C — gap flags
         "title_velocity_flag":  bucket_c["title_velocity_flag"],
+        "short_tenure_flag":    bucket_c["short_tenure_flag"],
+        "title_bump_flag":      bucket_c["title_bump_flag"],
+        "title_chaser_flag":    bucket_c["title_chaser_flag"],
+        "avg_past_tenure_months": bucket_c["avg_past_tenure_months"],
+        "avg_all_tenure_months": bucket_c["avg_all_tenure_months"],
+        "max_tenure_months": bucket_c["max_tenure_months"],
+        "current_tenure_months": bucket_c["current_tenure_months"],
+        "short_role_ratio": bucket_c["short_role_ratio"],
+        "stable_tenure_flag": bucket_c["stable_tenure_flag"],
+        "title_company_bump_count": bucket_c["title_company_bump_count"],
         "consulting_flag":       bucket_c["consulting_flag"],
         "external_validation":   bucket_c["external_validation"],
         "code_stopped":          bucket_c["code_stopped"],

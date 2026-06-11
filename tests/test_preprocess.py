@@ -150,3 +150,25 @@ def test_repeated_role_descriptions_across_companies_are_impossible():
 
     assert _has_repeated_role_descriptions(candidate) is True
     assert _check_impossible_flag(candidate) is True
+
+
+def test_many_expert_zero_duration_skills_are_impossible():
+    candidate = {
+        "profile": {"years_of_experience": 6.0},
+        "career_history": [
+            {
+                "start_date": "2020-01-01",
+                "end_date": None,
+                "duration_months": 72,
+                "is_current": True,
+                "description": "Built production ML systems.",
+            }
+        ],
+        "skills": [
+            {"name": f"Skill {idx}", "proficiency": "expert", "duration_months": 0}
+            for idx in range(8)
+        ],
+        "redrob_signals": {},
+    }
+
+    assert _check_impossible_flag(candidate) is True
