@@ -6,6 +6,20 @@ Team BuriBuri: Sathvik Pilyanam, Pranathi Mandadi
 
 This repository ranks the best 100 candidates for the Redrob Senior AI Engineer JD. The system is built as a two-stage retrieval and ranking engine: expensive embedding/index work is precomputed once, while the final `rank.py` submission path is CPU-only, deterministic, and fast.
 
+## Key Dataset Assumptions
+
+The official bundle warns about traps such as keyword stuffers, plain-language Tier 5s, behavioral twins, and a small number of honeypots, but it does not define every trap as an automatic elimination rule. During local corpus audits, exact long role descriptions repeated across two or more companies appeared in a large share of the synthetic candidate pool. Because this pattern is too common to treat as proof of fraud, the ranker does not reject candidates solely for duplicate role text.
+
+Instead, exact repeated role descriptions are treated as repeated evidence. The first occurrence can establish retrieval, ranking, evaluation, or production-system relevance; repeated copies are discounted for career-depth, role-count, and density signals so copied text cannot multiply proof of sustained experience. Independent structure is still preserved: company names, tenure, current role, recency, title/seniority, industry, company size, and Redrob behavioral signals remain available to the ranking logic.
+
+Skill duration metadata is also treated as lower-trust than demonstrated career work. Minor duration inconsistencies reduce confidence where material, but they do not by themselves make a candidate a honeypot unless the profile has a clear impossible contradiction.
+
+For the Python must-have, the runtime gate prefers explicit `Python`/Python-library evidence, but it also accepts narrow Python-native ML tooling proxies such as PyTorch, scikit-learn, MLflow, Kubeflow, or FAISS in a hands-on ML/search engineering context. This avoids excluding senior production ML engineers who omit the literal word `Python`, while still preventing generic vector-database mentions from satisfying the coding requirement.
+
+Career-density scoring follows the JD wording rather than only one canonical phrase list. Singular and compound evidence such as `embedding-based search`, `embedding ranker`, and `ranker variants` is treated as retrieval/ranking evidence because the JD explicitly asks for embeddings, retrieval, ranking, and a working ranker. Generic `A/B testing` remains guarded: it contributes to evaluation density only when the same role already shows search, retrieval, ranking, recommendation, or matching work.
+
+For the dataset summary, corpus audit counts, and the exact assumptions used for duplicate descriptions, behavioral twins, and skill-duration metadata, see [docs/DATASET_ANALYSIS.md](docs/DATASET_ANALYSIS.md).
+
 ## Quick Start
 
 ```bash
@@ -69,6 +83,8 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
 
+*(This will also generate dynamic ranking statistics available at [docs/ranking_statistics.md](docs/ranking_statistics.md))*
+
 Run tests:
 
 ```bash
@@ -89,41 +105,41 @@ These are local verification metrics for the current generated `team_BuriBuri.cs
 |---|---:|
 | Output rows | 100 |
 | Required columns | `candidate_id,rank,score,reasoning` |
-| Runtime for `rank.py` | about 6.4 seconds locally |
+| Runtime for `rank.py` | about 5.5 seconds locally |
 | Ranking constraint | CPU only, no network, no GPU |
 | Submission validator | Pass |
 | Reasoning factuality audit | 100 rows checked, 0 errors, 0 warnings |
-| Full test suite | 94 passed |
-| Top score | 99.459695 |
-| Rank-100 score | 54.047821 |
-| Mean score | 68.928685 |
-| Median score | 69.027202 |
-| Rank 1 | `CAND_0018499` |
-| Rank 10 | `CAND_0002025` |
-| Rank 50 | `CAND_0075249` |
-| Rank 100 | `CAND_0027801` |
+| Full test suite | 113 passed |
+| Top score | 99.972553 |
+| Rank-100 score | 46.487310 |
+| Mean score | 62.360000 |
+| Median score | 58.420000 |
+| Rank 1 | `CAND_0046525` |
+| Rank 10 | `CAND_0081846` |
+| Rank 50 | `CAND_0015967` |
+| Rank 100 | `CAND_0094056` |
 
 ## Preprocessing Reliability
 
-The expensive preprocessing stage reduces the official 100,000-candidate pool to the feature pool consumed by `rank.py`. The current feature pool contains 12,325 candidates, built as a union of two complementary recall paths:
+The expensive preprocessing stage reduces the official 100,000-candidate pool to the feature pool consumed by `rank.py`. The current feature pool contains 12,567 candidates, built as a union of two complementary recall paths:
 
 - a semantic RRF base from dense BGE-M3 retrieval, learned-sparse BGE-M3 retrieval, and BM25
 - a full-corpus exact/regex rescue lane over JD-critical career evidence such as retrieval, search, recommendation, ranking, vector/hybrid search, evaluation, Python, and production shipping language
 
-This is intentionally wider than the final top-100 requirement. The goal is high recall before scoring, not early precision. The exact recall lane scans all 100,000 candidates and the current artifacts include every candidate from that lane's top 10,000. The resulting 12,325-row pool is therefore not just "top embedding matches"; it also protects against missing strong plain-language profiles that describe recommendation, ranking, or evaluation work without fashionable RAG/vector keywords.
+This is intentionally wider than the final top-100 requirement. The goal is high recall before scoring, not early precision. The exact recall lane scans all 100,000 candidates and the current artifacts include every candidate from that lane's top 10,000. The resulting 12,567-row pool is therefore not just "top embedding matches"; it also protects against missing strong plain-language profiles that describe recommendation, ranking, or evaluation work without fashionable RAG/vector keywords.
 
 Current artifact coverage checks:
 
 | Check | Current result |
 |---|---:|
-| Current retrieval pool | 12,325 candidates |
-| Feature rows | 12,325 candidates |
+| Current retrieval pool | 12,567 candidates |
+| Feature rows | 12,567 candidates |
 | Cross-encoder rows | 12,325 candidates |
 | Exact recall top-10K missing from feature pool | 0 |
 | Final top-100 outside feature pool | 0 |
 | Final top-100 with impossible/suspicious/ghost flags | 0 |
 
-The main residual risk is semantic-only candidates ranked outside the older semantic base but not caught by exact recall. In practice that risk is reduced by the full-corpus exact lane, the breadth of JD patterns, and the fact that all final top-100 candidates already come from the semantic base. A full preprocessing refresh may change the candidate pool slightly if the semantic base is widened, but it is not required to reproduce or validate the current submission.
+The main residual risk is semantic-only candidates ranked outside the older semantic base but not caught by exact recall. In practice that risk is reduced by the full-corpus exact lane, the breadth of JD patterns, and the fact that the audited top-100 candidates came from the semantic base. After the strict hard-gate update, final submission artifacts must be regenerated and revalidated before making a current top-100 claim.
 
 Competition scoring metrics from `Resources/submission_spec.txt`:
 
@@ -229,7 +245,8 @@ For the deeper system walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.
 | Handcrafted scoring | Phase 4 runtime | Interpretable JD-specific score based on must-haves, career quality, and product ownership |
 | Cross-encoder merge | Phase 4 runtime from offline scores | Improves semantic ordering without runtime model inference |
 | Runtime profile calibration | Phase 5 runtime over top slice | Reads full profile text for recent full-plan JD fit and current services context |
-| Behavioral modifiers | Phase 5 runtime | Applies reachability, notice, location, activity, and trust penalties late |
+| JD hard gates | Phase 5 runtime | Removes missing-must-have and true disqualifier profiles before final Top 100 ranking |
+| Behavioral modifiers | Phase 5 runtime | Applies reachability, notice, location, activity, and trust penalties late for candidates that pass the hard gates |
 | Deterministic reasoning | Phase 6 runtime | Generates factual 1-2 sentence explanations without LLM hallucination risk |
 
 ## Scoring Weights
@@ -262,23 +279,26 @@ Cross-encoder blend:
 
 Behavioral and penalty values are also in `weights.yaml`, including notice period, response rate, location, relocation, ghost/honeypot, social proof, contradiction, services-context, full-profile calibration, and low-density evidence penalties.
 
+The current JD uses hard gates before final ranking for capability and trust fit. A candidate is removed from Top-100 eligibility if any true must-have bucket is extracted as zero without a raw-evidence override, or if a JD-explicit disqualifier flag is true. Notice period and location/no-relocation are strong hiring-friction penalties, not hard exclusions. Hard exclusions are written to `artifacts/hard_disqualified_debug.csv` during `rank.py`.
+
 ## Artifact Guide
 
 `rank.py` expects precomputed artifacts. It does not rebuild missing embeddings or indexes.
 
 Important current artifacts:
 
-| Artifact | Purpose | Approx size |
-|---|---|---:|
-| `artifacts/candidate_features.parquet` | Feature table consumed by `rank.py` | 0.53 MB |
-| `artifacts/retrieval_scores.parquet` | RRF retrieval scores | 0.20 MB |
-| `artifacts/cross_encoder_scores.parquet` | Offline cross-encoder scores | 0.11 MB |
-| `artifacts/candidate_flags.parquet` | Honeypot, ghost, contradiction, trust flags | 0.84 MB |
-| `artifacts/faiss_index.bin` | Dense vector index | 390.63 MB |
-| `artifacts/candidate_sparse_matrix.npz` | Learned-sparse candidate matrix | 61.03 MB |
-| `artifacts/bm25_index.pkl` | BM25 index | 189.12 MB |
-| `artifacts/candidate_texts.pkl` | Serialized candidate text | 187.27 MB |
-| `artifacts/candidate_ids.json` | Candidate ID order for indexes | 1.53 MB |
+| Artifact                                 | Purpose                                     | Approx size |
+| ------------------------------------------| ---------------------------------------------| ------------:|
+| `artifacts/candidate_features.parquet`   | Feature table consumed by `rank.py`         | 0.53 MB     |
+| `artifacts/retrieval_scores.parquet`     | RRF retrieval scores                        | 0.20 MB     |
+| `artifacts/cross_encoder_scores.parquet` | Offline cross-encoder scores                | 0.11 MB     |
+| `artifacts/candidate_flags.parquet`      | Honeypot, ghost, contradiction, trust flags | 0.84 MB     |
+| `artifacts/faiss_index.bin`              | Dense vector index                          | 390.63 MB   |
+| `artifacts/candidate_sparse_matrix.npz`  | Learned-sparse candidate matrix             | 61.03 MB    |
+| `artifacts/bm25_index.pkl`               | BM25 index                                  | 189.12 MB   |
+| `artifacts/candidate_texts.pkl`          | Serialized candidate text                   | 187.27 MB   |
+| `artifacts/candidate_ids.json`           | Candidate ID order for indexes              | 1.53 MB     |
+| `artifacts/hard_disqualified_debug.csv`  | JD hard-gate exclusions from final ranking  | generated by `rank.py` |
 
 `artifacts/run_metadata.json` currently records:
 
@@ -398,9 +418,12 @@ evidence-rank/
 |-- tests/
 |-- docs/
 |   |-- ARCHITECTURE.md             # Clear architecture guide with Mermaid diagrams
+|   |-- DATASET_ANALYSIS.md         # Dataset traps, assumptions, and corpus audit notes
+|   |-- DATA_AND_ARTIFACTS.md       # Artifact inventory and data governance
+|   |-- JUDGE_GUIDE.md              # Reviewer quick path
 |   |-- plan/                       # Phase-by-phase implementation notes
-|   |-- reference/
-|   `-- auditfiles/
+|   |-- reference/                  # Current concise variable reference
+|   `-- auditfiles/                 # Latest deep audit only
 `-- Resources/                      # Original hackathon resources and specs
 ```
 
@@ -460,8 +483,10 @@ Start with these:
 
 - [docs/JUDGE_GUIDE.md](docs/JUDGE_GUIDE.md) - fastest reviewer path: what to run, what to inspect, and how to understand the submission
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - clear architecture explanation with Mermaid diagrams and stage-by-stage flow
+- [docs/DATASET_ANALYSIS.md](docs/DATASET_ANALYSIS.md) - released dataset summary, trap assumptions, duplicate-description audit, and preprocessing reliability notes
 - [REPRODUCIBILITY.md](REPRODUCIBILITY.md) - exact reproduction commands and when artifacts must be rebuilt
 - [docs/DATA_AND_ARTIFACTS.md](docs/DATA_AND_ARTIFACTS.md) - what data/artifacts exist, what generated them, and what `rank.py` consumes
+- [docs/auditfiles/team_buriburi_deep_audit.md](docs/auditfiles/team_buriburi_deep_audit.md) - historical deep-audit notes from an earlier generated CSV
 
 Project governance and metadata:
 
@@ -484,6 +509,6 @@ Detailed implementation references:
 - [docs/plan/phase_6_reason_generation.md](docs/plan/phase_6_reason_generation.md) - factual reasoning generation
 - [docs/plan/phase_7_validation_and_references.md](docs/plan/phase_7_validation_and_references.md) - validation and references
 
-Audit/reference notes under `docs/auditfiles/` and `docs/reference/` are supporting history, not required reading for judges.
+Historical duplicate audit/reference documents have been pruned. Current numeric tuning authority remains `weights.yaml`, `constants.py`, and the implementation; deep-audit notes should be refreshed whenever the generated top 100 changes materially.
 
 Use this README to run and reproduce the project. Use `docs/ARCHITECTURE.md` to explain the system in interviews or manual review.
