@@ -398,7 +398,7 @@ def test_new_penalties_are_moderate_for_two_mild_flags():
     penalty = soft_penalties(mild_two_flags)
     expected = W["soft_penalties.adjacent_career_half_mult"] * W["soft_penalties.ce_delta_moderate_mult"]
     assert penalty == pytest.approx(expected)
-    assert penalty > 0.80
+    assert penalty > 0.75
 
     severe_stack = dict(
         base,

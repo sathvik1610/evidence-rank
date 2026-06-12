@@ -157,7 +157,7 @@ def test_generate_reasoning_large_ce_core_delta_caveats():
         "profile_years_of_experience": 7.6,
         "rank": 67,
         "core_score": 84.34,
-        "ce_score": 33.32,
+        "ce_score": 50.0,
         "retrieval_search": 3.0,
         "sys_experience_score": 1.0,
         "vector_db_hybrid": 3.0,

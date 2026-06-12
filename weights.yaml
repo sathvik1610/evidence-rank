@@ -124,7 +124,7 @@ soft_penalties:
   adjacent_career_high_mult:         0.75 # >=65% adjacent career is a stronger relevance drag
   high_adjacent_career_mult:         0.86 # legacy adjacent ML/chatbot/MLOps penalty
   ce_delta_moderate_threshold:       35.0 # core >> CE suggests regex overread
-  ce_delta_high_threshold:           34.0
+  ce_delta_high_threshold:           40.0
   ce_delta_moderate_mult:            0.94
   ce_delta_high_mult:                0.90
   ce_ceiling_threshold:              99.5 # perfect CE is a sanity-check flag, not a free pass

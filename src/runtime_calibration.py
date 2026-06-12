@@ -23,13 +23,21 @@ RETRIEVAL_RE = re.compile(
 )
 VECTOR_RE = re.compile(
     r"\b(vector|embedding|embeddings|bge|e5|faiss|pinecone|qdrant|milvus|"
-    r"weaviate|opensearch|elasticsearch|hnsw|pgvector|sentence-transformers?)\b",
+    r"weaviate|opensearch|elasticsearch|hnsw|pgvector|sentence-transformers?|"
+    # Specific ANN library names — zero false-positive risk
+    r"nmslib|scann|"
+    # Neural retrieval architectures — highly domain-specific, multi-word for safety
+    r"dual[\s\-]encoder|bi[\-]encoder|two[\s\-._]tower|"
+    # Full phrase only — safe as multi-word, still gated by career_ship co-occurrence
+    r"approximate nearest neighbor)\b",
     re.IGNORECASE,
 )
 CONCRETE_VECTOR_TOOL_RE = re.compile(
     r"\b(faiss|pinecone|qdrant|milvus|weaviate|opensearch|elasticsearch|"
     r"pgvector|hnsw|sentence-transformers?|bge|e5|openai embeddings|"
-    r"cohere embeddings|jina embeddings|voyage)\b",
+    r"cohere embeddings|jina embeddings|voyage|"
+    # Additional specific ANN libraries added in Fix 2
+    r"nmslib|scann)\b",
     re.IGNORECASE,
 )
 RANKING_RE = re.compile(
