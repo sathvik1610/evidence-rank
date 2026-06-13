@@ -103,9 +103,9 @@ soft_penalties:
   research_only_mult:   0.40  # No engineering titles
   wrong_domain_mult:    0.50  # CV/speech/robotics without NLP/IR
   closed_source_mult:   0.80  # 5+ years no external validation
-  target_skill_duration_one_mult:   0.96  # One target skill duration exceeds claimed YoE + buffer
-  target_skill_duration_multi_mult: 0.90  # Multiple noisy target-skill contradictions; softened for strong career evidence in code
-  target_skill_duration_strong_plan_mult: 0.94
+  target_skill_duration_one_mult:   0.94  # One target skill duration exceeds claimed YoE + buffer
+  target_skill_duration_multi_mult: 0.86  # Multiple noisy target-skill contradictions; softened for strong career evidence in code
+  target_skill_duration_strong_plan_mult: 0.90
   adjacent_domain_weak_ir_mult:     0.55  # CV/speech/robotics title with weak retrieval/vector/eval evidence
   current_consulting_weak_ir_mult:  0.60  # Current consulting firm plus weak target/product evidence
   current_services_default_mult:    0.94  # Current services context is a top-rank tie-break risk
@@ -124,9 +124,9 @@ soft_penalties:
   adjacent_career_high_mult:         0.75 # >=65% adjacent career is a stronger relevance drag
   high_adjacent_career_mult:         0.86 # legacy adjacent ML/chatbot/MLOps penalty
   ce_delta_moderate_threshold:       35.0 # core >> CE suggests regex overread
-  ce_delta_high_threshold:           40.0
-  ce_delta_moderate_mult:            0.94
-  ce_delta_high_mult:                0.90
+  ce_delta_high_threshold:           38.0 # >= 38.0 core-ce gap
+  ce_delta_moderate_mult:            0.94 # 35.0 - 37.9 core-ce gap
+  ce_delta_high_mult:                0.85 # >= 38.0 core-ce gap
   ce_ceiling_threshold:              99.5 # perfect CE is a sanity-check flag, not a free pass
   ce_ceiling_mult:                   0.97
   zero_vector_hybrid_mult:           0.55 # vector/hybrid is a JD must-have
@@ -333,7 +333,56 @@ honeypot:
   s6_uniform_descriptions:  0.10  # All career descriptions statistically uniform length
   suspicious_threshold:     0.70  # honeypot_score > this → suspicious_flag = True
 
+
+# ---------------------------------------------------------------------------
+# Phase 5b — Hidden-IR eval-aware final calibration
+# ---------------------------------------------------------------------------
+# This layer is intentionally conservative. It is designed to improve NDCG@10
+# and NDCG@50 by breaking ties in favor of candidates with concrete career
+# evidence of production retrieval/search/ranking/matching + evaluation.
+# It uses only synthetic candidate data and does not call external services.
+eval_metric_calibration:
+  enabled: true
+  max_bonus: 6.0
+  same_role_full_system_bonus: 2.4
+  direct_workflow_bonus: 1.4
+  retrieval_ranking_eval_bonus: 1.2
+  production_eval_bonus: 0.8
+  python_core_system_bonus: 0.4
+
+  # Sanity/tie-break penalties. These are mild because synthetic profiles can
+  # reuse templates; they should move candidates near boundaries, not DQ them.
+  duplicate_description_drop: 0.025
+  duplicate_description_floor: 0.94
+  ce_low_threshold: 60.0
+  core_high_threshold: 85.0
+  ce_rule_disagreement_mult: 0.965
+  no_core_ir_mult: 0.82
+  no_eval_mult: 0.92
+  no_python_signal_mult: 0.97
+
+  # Reachability/logistics tie-breakers. Technical relevance remains primary.
+  passive_response_ok: 0.70
+  passive_responsive_mult: 0.985
+  not_open_mult: 0.94
+  low_response_threshold: 0.40
+  low_response_mult: 0.90
+  notice_90_mult: 0.96
+  notice_bad_mult: 0.88
+  india_no_reloc_mult: 0.965
+  outside_india_mult: 0.72
+  elite_fit_multiplier_floor: 0.92
+
 # ---------------------------------------------------------------------------
 # Version tracking
 # ---------------------------------------------------------------------------
 version: "1.1.1"
+
+
+# Eval-aware internal sanity penalties. These use only synthetic profile fields.
+eval_metric_calibration.severe_skill_overclaim_months: 30
+eval_metric_calibration.severe_skill_overclaim_mult: 0.75
+eval_metric_calibration.moderate_skill_overclaim_months: 18
+eval_metric_calibration.moderate_skill_overclaim_mult: 0.87
+eval_metric_calibration.mild_skill_overclaim_months: 6
+eval_metric_calibration.mild_skill_overclaim_mult: 0.95

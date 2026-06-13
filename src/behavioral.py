@@ -636,8 +636,8 @@ def soft_penalties(cand: dict) -> float:
         max_overclaim = float(cand.get("max_target_skill_overclaim_months", 0.0))
         if max_overclaim >= 24.0:
             multiplier *= 0.85
-        elif max_overclaim >= 12.0:
-            multiplier *= 0.92
+        elif max_overclaim >= 6.0:
+            multiplier *= 0.90
     except (ValueError, TypeError):
         pass
 

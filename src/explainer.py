@@ -573,7 +573,7 @@ def get_largest_concern(cand: dict) -> str:
         return f"Missing must-have evidence for {', '.join(missing)}; treat as a capped/manual-review profile."
     if ce_rescue_with_core_gap(cand):
         return "Cross-encoder and handcrafted score strongly disagree while must-have evidence is incomplete."
-    if core_over_ce_disagreement(cand) > 40.0:
+    if core_over_ce_disagreement(cand) > 38.0:
         return "Handcrafted score is much higher than semantic CE score; regex evidence may be over-reading adjacent work."
     if ce_core_delta(cand) > 30.0:
         return "Cross-encoder and handcrafted score strongly disagree; raw evidence needs manual review."

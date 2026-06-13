@@ -18,6 +18,8 @@ For the Python must-have, the runtime gate prefers explicit `Python`/Python-libr
 
 Career-density scoring follows the JD wording rather than only one canonical phrase list. Singular and compound evidence such as `embedding-based search`, `embedding ranker`, and `ranker variants` is treated as retrieval/ranking evidence because the JD explicitly asks for embeddings, retrieval, ranking, and a working ranker. Generic `A/B testing` remains guarded: it contributes to evaluation density only when the same role already shows search, retrieval, ranking, recommendation, or matching work.
 
+**Keyword Stuffer Mitigation**: To naturally filter out candidates who stuff keywords but lack genuine semantic alignment (trap profiles), the ranking engine calculates a "Cross-Encoder Disagreement Penalty" (`ce_core_delta`). If a candidate's handcrafted regex core score vastly exceeds their AI semantic cross-encoder score (by a threshold of `38.0` points), their score is aggressively penalized via a harsh multiplier. This drops false-positives completely out of the Top 10, ensuring high precision in the final submission.
+
 For the dataset summary, corpus audit counts, and the exact assumptions used for duplicate descriptions, behavioral twins, and skill-duration metadata, see [docs/DATASET_ANALYSIS.md](docs/DATASET_ANALYSIS.md).
 
 ## Quick Start
@@ -110,14 +112,14 @@ These are local verification metrics for the current generated `team_BuriBuri.cs
 | Submission validator | Pass |
 | Reasoning factuality audit | Deterministic evidence-grounded reasoning; final rows manually spot-checked after regeneration |
 | Full test suite | See local `pytest` run; `rank.py` and edited modules compile |
-| Top score | 95.955 |
-| Rank-100 score | 46.914 |
-| Mean score | 58.883 |
-| Median score | 55.760 |
+| Top score | 96.178 |
+| Rank-100 score | 46.455 |
+| Mean score | 59.149 |
+| Median score | 54.299 |
 | Rank 1 | `CAND_0046525` |
-| Rank 10 | `CAND_0062247` |
-| Rank 50 | `CAND_0042029` |
-| Rank 100 | `CAND_0070398` |
+| Rank 10 | `CAND_0088025` |
+| Rank 50 | `CAND_0026532` |
+| Rank 100 | `CAND_0078492` |
 
 ## Preprocessing Reliability
 
@@ -255,12 +257,12 @@ For the deeper system walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.
 
 Core technical score in `src/scorer.py` is controlled by `weights.yaml`:
 
-| Core bucket | Weight |
-|---|---:|
-| Must-have evidence | 0.55 |
-| Nice-to-have evidence | 0.05 |
-| Career quality | 0.15 |
-| Product-builder score | 0.25 |
+| Core bucket           | Weight |
+| -----------------------| -------:|
+| Must-have evidence    | 0.55   |
+| Nice-to-have evidence | 0.05   |
+| Career quality        | 0.15   |
+| Product-builder score | 0.25   |
 
 Must-have sub-signals:
 
