@@ -4,23 +4,34 @@ Redrob Hackathon submission for the Intelligent Candidate Discovery and Ranking 
 
 Team BuriBuri: Sathvik Pilyanam, Pranathi Mandadi
 
+**[🚀 Try the Sandbox Demo on Google Colab](https://colab.research.google.com/drive/1VOb_D3VliBd3zvcNntn865UaTFod9xfP?usp=sharing)**
+*(Instantly evaluates candidate profiles in your browser without requiring the massive ML artifacts)*
+
 This repository ranks the best 100 candidates for the Redrob Senior AI Engineer JD. The system is built as a two-stage retrieval and ranking engine: expensive embedding/index work is precomputed once, while the final `rank.py` submission path is CPU-only, deterministic, and fast.
 
-## Key Dataset Assumptions
 
-The official bundle warns about traps such as keyword stuffers, plain-language Tier 5s, behavioral twins, and a small number of honeypots, but it does not define every trap as an automatic elimination rule. During local corpus audits, exact long role descriptions repeated across two or more companies appeared in a large share of the synthetic candidate pool. Because this pattern is too common to treat as proof of fraud, the ranker does not reject candidates solely for duplicate role text.
 
-Instead, exact repeated role descriptions are treated as repeated evidence. The first occurrence can establish retrieval, ranking, evaluation, or production-system relevance; repeated copies are discounted for career-depth, role-count, and density signals so copied text cannot multiply proof of sustained experience. Independent structure is still preserved: company names, tenure, current role, recency, title/seniority, industry, company size, and Redrob behavioral signals remain available to the ranking logic.
+## Table of Contents
 
-Skill duration metadata is also treated as lower-trust than demonstrated career work. Minor duration inconsistencies reduce confidence where material, but they do not by themselves make a candidate a honeypot unless the profile has a clear impossible contradiction.
-
-For the Python must-have, the runtime gate prefers explicit `Python`/Python-library evidence, but it also accepts narrow Python-native ML tooling proxies such as PyTorch, scikit-learn, MLflow, Kubeflow, or FAISS in a hands-on ML/search engineering context. This avoids excluding senior production ML engineers who omit the literal word `Python`, while still preventing generic vector-database mentions from satisfying the coding requirement.
-
-Career-density scoring follows the JD wording rather than only one canonical phrase list. Singular and compound evidence such as `embedding-based search`, `embedding ranker`, and `ranker variants` is treated as retrieval/ranking evidence because the JD explicitly asks for embeddings, retrieval, ranking, and a working ranker. Generic `A/B testing` remains guarded: it contributes to evaluation density only when the same role already shows search, retrieval, ranking, recommendation, or matching work.
-
-**Keyword Stuffer Mitigation**: To naturally filter out candidates who stuff keywords but lack genuine semantic alignment (trap profiles), the ranking engine calculates a "Cross-Encoder Disagreement Penalty" (`ce_core_delta`). If a candidate's handcrafted regex core score vastly exceeds their AI semantic cross-encoder score (by a threshold of `38.0` points), their score is aggressively penalized via a harsh multiplier. This drops false-positives completely out of the Top 10, ensuring high precision in the final submission.
-
-For the dataset summary, corpus audit counts, and the exact assumptions used for duplicate descriptions, behavioral twins, and skill-duration metadata, see [docs/DATASET_ANALYSIS.md](docs/DATASET_ANALYSIS.md).
+- [Quick Start](#quick-start)
+- [Key Dataset Assumptions](#key-dataset-assumptions)
+- [Current Submission Metrics](#current-submission-metrics)
+- [Preprocessing Reliability](#preprocessing-reliability)
+- [What The System Optimizes For](#what-the-system-optimizes-for)
+- [Architecture Summary](#architecture-summary)
+  - [Stage A: Offline Preprocessing](#stage-a-offline-preprocessing)
+  - [Stage B: Runtime Ranking](#stage-b-runtime-ranking)
+- [Key Files Explained](#key-files-explained)
+- [Main Methods Used](#main-methods-used)
+- [Scoring Weights](#scoring-weights)
+- [Artifact Guide](#artifact-guide)
+- [When To Recalculate Preprocessing](#when-to-recalculate-preprocessing)
+- [Validation Checklist](#validation-checklist)
+- [Integrity Declaration](#integrity-declaration)
+- [Repository Layout](#repository-layout)
+- [Key Files](#key-files)
+- [Demo Sandbox](#demo-sandbox)
+- [Documentation Map](#documentation-map)
 
 ## Quick Start
 
@@ -98,6 +109,23 @@ Only install the full offline/model stack if you need to rebuild preprocessing a
 ```bash
 pip install -r requirements-offline.txt
 ```
+
+## Key Dataset Assumptions
+
+The official bundle warns about traps such as keyword stuffers, plain-language Tier 5s, behavioral twins, and a small number of honeypots, but it does not define every trap as an automatic elimination rule. During local corpus audits, exact long role descriptions repeated across two or more companies appeared in a large share of the synthetic candidate pool. Because this pattern is too common to treat as proof of fraud, the ranker does not reject candidates solely for duplicate role text.
+
+Instead, exact repeated role descriptions are treated as repeated evidence. The first occurrence can establish retrieval, ranking, evaluation, or production-system relevance; repeated copies are discounted for career-depth, role-count, and density signals so copied text cannot multiply proof of sustained experience. Independent structure is still preserved: company names, tenure, current role, recency, title/seniority, industry, company size, and Redrob behavioral signals remain available to the ranking logic.
+
+Skill duration metadata is also treated as lower-trust than demonstrated career work. Minor duration inconsistencies reduce confidence where material, but they do not by themselves make a candidate a honeypot unless the profile has a clear impossible contradiction.
+
+For the Python must-have, the runtime gate prefers explicit `Python`/Python-library evidence, but it also accepts narrow Python-native ML tooling proxies such as PyTorch, scikit-learn, MLflow, Kubeflow, or FAISS in a hands-on ML/search engineering context. This avoids excluding senior production ML engineers who omit the literal word `Python`, while still preventing generic vector-database mentions from satisfying the coding requirement.
+
+Career-density scoring follows the JD wording rather than only one canonical phrase list. Singular and compound evidence such as `embedding-based search`, `embedding ranker`, and `ranker variants` is treated as retrieval/ranking evidence because the JD explicitly asks for embeddings, retrieval, ranking, and a working ranker. Generic `A/B testing` remains guarded: it contributes to evaluation density only when the same role already shows search, retrieval, ranking, recommendation, or matching work.
+
+**Keyword Stuffer Mitigation**: To naturally filter out candidates who stuff keywords but lack genuine semantic alignment (trap profiles), the ranking engine calculates a "Cross-Encoder Disagreement Penalty" (`ce_core_delta`). If a candidate's handcrafted regex core score vastly exceeds their AI semantic cross-encoder score (by a threshold of `38.0` points), their score is aggressively penalized via a harsh multiplier. This drops false-positives completely out of the Top 10, ensuring high precision in the final submission.
+
+For the dataset summary, corpus audit counts, and the exact assumptions used for duplicate descriptions, behavioral twins, and skill-duration metadata, see [docs/DATASET_ANALYSIS.md](docs/DATASET_ANALYSIS.md).
+
 
 ## Current Submission Metrics
 
