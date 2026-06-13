@@ -413,7 +413,7 @@ def main():
     parser.add_argument("--debug-top-n", type=int, default=150, help="How many ranked rows to write to artifacts/ranking_debug.csv")
     args = parser.parse_args()
 
-    print("--- Stage B: Ranking Execution ---")
+    print("\n=== Stage B: Ranking ===")
     
     # 1. Load Precomputed Features (Phase 1c output)
     # The offline pipeline already filtered this to the Top 5000 from Phase 1d (RRF)
@@ -430,7 +430,8 @@ def main():
     df = pl.read_parquet(constants.CANDIDATE_FEATURES_PARQUET)
     before_filter = len(df)
     df = df.filter(pl.col("candidate_id").is_in(candidate_ids))
-    print(f"Loaded {len(df)} candidates from precomputed feature pool after filtering {before_filter} artifact rows to the input file.")
+    print(f"  [1/5] Loaded {len(df):,} candidates")
+
     if len(df) == 0:
         print("Error: input candidate IDs do not overlap with precomputed features. Re-run preprocess.py for this candidate file.")
         sys.exit(1)
@@ -447,7 +448,8 @@ def main():
               .sort("rrf_score", descending=True)
               .head(runtime_top_k)
         )
-        print(f"Applied Phase 2 RRF cutoff: top {len(df)} by retrieval score.")
+    print(f"  [2/5] Retrieval scoring -> top {len(df):,} by RRF")
+
 
     # 2. Phase 4a: Core Scoring (Vectorized)
     df = score_candidates_vectorized(df)
@@ -462,7 +464,7 @@ def main():
     # otherwise high-scoring but ineligible candidates before final ranking.
     phase5_pool_size = int(W.get("ranking.phase5_candidate_pool", 1000))
     df = df.sort("final_phase4_score", descending=True).head(phase5_pool_size)
-    print(f"Sliced to top {len(df)} candidates by blended Phase 4 score for Phase 5 gate/backfill.")
+    print(f"  [3/5] Core + cross-encoder scoring complete ({len(df):,} candidates in pool)")
     
     # We now move to python dictionaries for Phase 5 & 6 row-level operations
     # since these are complex heuristic formulas and the Phase 5 pool is bounded.
@@ -508,7 +510,7 @@ def main():
                 except ValueError:
                     pass
 
-    print("Running Phase 5 (Behavioral Modifiers + eval-aware calibration)...")
+    print(f"  [4/5] Behavioral modifiers + calibration...")
     for cand in candidates:
         raw = compute_final_score(cand, ref_date)
         # Preserve the internal unclamped score which is computed inside compute_final_score.
@@ -525,6 +527,7 @@ def main():
 
     # Phase 5b: Rank Assignment
     candidates = assign_ranks(candidates)
+    print(f"  [5/5] Ranks assigned -> generating reasoning for top {min(len(candidates), 100)} candidates")
 
     # Official submissions must contain exactly 100 rows. For sample/sandbox
     # inputs with fewer than 100 candidates, output the available ranked rows.
@@ -542,7 +545,7 @@ def main():
     score_raw_min = min(submission_raw_scores) if submission_raw_scores else 0.0
     score_raw_max = max(submission_raw_scores) if submission_raw_scores else 0.0
 
-    print(f"Running Phase 6 (Reason Generation) for Top {len(top_100)} submission rows and Top {len(debug_candidates)} debug rows...")
+
     debug_records = []
     output_records = []
     reason_cache = {}
@@ -892,22 +895,19 @@ def main():
             
         with open(stats_md_path, "w", encoding="utf-8") as f:
             f.writelines(md_lines)
-            
-        print(f"Ranking statistics written to {stats_md_path}")
     except Exception as e:
-        print(f"Warning: Failed to generate statistics md: {e}")
-        
+        print(f"Warning: Failed to generate statistics: {e}")
+
     elapsed = time.time() - start_time
-    print(f"Successfully wrote {len(out_df)} candidates to {args.out}")
-    print(f"Debug trace written to artifacts/ranking_debug.csv")
-    print("Hard-disqualification trace written to artifacts/hard_disqualified_debug.csv")
-    print(
-        "Diagnostics written to artifacts/rank_score_gaps.csv, "
-        "artifacts/score_gap_diagnostics.csv, artifacts/large_gap_warnings.csv, "
-        "and artifacts/yoe_distribution.csv"
-    )
-    print(f"Large Top-40 gap warnings: {len(large_gap_warning_records)}")
-    print(f"Runtime: {elapsed:.2f} seconds.")
+    print(f"\nDone in {elapsed:.2f}s  ->  {len(out_df)} candidates ranked")
+    print(f"\nOutput files:")
+    print(f"  Submission       {args.out}")
+    print(f"  Ranking trace    artifacts/ranking_debug.csv")
+    print(f"  Filtered out     artifacts/hard_disqualified_debug.csv")
+    print(f"  Score gaps       artifacts/rank_score_gaps.csv")
+    print(f"  Gap diagnostics  artifacts/score_gap_diagnostics.csv")
+    print(f"  YOE distribution artifacts/yoe_distribution.csv")
+    print(f"  Statistics       docs/ranking_statistics.md")
 
 if __name__ == "__main__":
     main()

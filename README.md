@@ -96,7 +96,29 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
 
-*(This will also generate dynamic ranking statistics available at [docs/ranking_statistics.md](docs/ranking_statistics.md))*
+Expected console output:
+
+```text
+=== Stage B: Ranking ===
+  [1/5] Loaded 12,567 candidates
+  [2/5] Retrieval scoring -> top 10,000 by RRF
+  [3/5] Core + cross-encoder scoring complete (1,000 candidates in pool)
+  [4/5] Behavioral modifiers + calibration...
+  [5/5] Ranks assigned -> generating reasoning for top 100 candidates
+
+Done in ~7s  ->  100 candidates ranked
+
+Output files:
+  Submission       ./team_BuriBuri.csv
+  Ranking trace    artifacts/ranking_debug.csv
+  Filtered out     artifacts/hard_disqualified_debug.csv
+  Score gaps       artifacts/rank_score_gaps.csv
+  Gap diagnostics  artifacts/score_gap_diagnostics.csv
+  YOE distribution artifacts/yoe_distribution.csv
+  Statistics       docs/ranking_statistics.md
+```
+
+*(Dynamic ranking statistics are also written to [docs/ranking_statistics.md](docs/ranking_statistics.md) each run)*
 
 Run tests:
 
@@ -135,7 +157,7 @@ These are local verification metrics for the current generated `team_BuriBuri.cs
 | ----------------------------| -----------------------------------------------------------------------------------------------:|
 | Output rows                | 100                                                                                            |
 | Required columns           | `candidate_id,rank,score,reasoning`                                                            |
-| Runtime for `rank.py`      | about 5.5 seconds locally                                                                      |
+| Runtime for `rank.py`      | about 7 seconds locally                                                                        |
 | Ranking constraint         | CPU only, no network, no GPU                                                                   |
 | Submission validator       | Pass                                                                                           |
 | Reasoning factuality audit | Deterministic evidence-grounded reasoning; final rows manually spot-checked after regeneration |
@@ -256,7 +278,7 @@ Purpose:
 - apply behavioral modifiers and trust penalties with `src/behavioral.py`
 - assign deterministic ranks
 - generate factual reasoning with `src/explainer.py`
-- write `team_BuriBuri.csv` and `artifacts/ranking_debug.csv`
+- write `team_BuriBuri.csv` and artifact CSVs to `artifacts/`
 
 This stage is CPU-only, uses no network calls, and does not load torch, FAISS, FlagEmbedding, or sentence-transformer models.
 
@@ -318,7 +340,7 @@ Behavioral and penalty values are also in `weights.yaml`, including notice perio
 
 The current JD uses hard-gate scoring for capability and trust fit. A candidate with a true must-have gap or JD-explicit disqualifier receives a near-zero final score and falls out of the Top 100 naturally rather than being manually removed before ranking. Notice period and location/no-relocation are strong hiring-friction penalties, not hard exclusions. Hard-disqualification diagnostics are written to `artifacts/hard_disqualified_debug.csv` during `rank.py`; the current Top 100 contains zero hard-disqualified candidates.
 
-The submitted `score` column is a fixed monotonic display calibration of the internal final score: `visible_score = clamp(12 + 0.79 * true_unclamped_final_score, 1, 96)`. Ranking is assigned from the internal `true_unclamped_final_score`; the displayed score is kept on a human-readable 1-100 scale and is not normalized relative to rank 100.
+The submitted `score` column is a sigmoid mapping of the internal final score onto a 42-98 display range: `visible_score = 42 + 56 * sigmoid((true_unclamped_final_score - 68) / 12)`. Ranking is assigned from the internal `true_unclamped_final_score`; the displayed score is kept on a human-readable scale and is not normalized relative to rank 100.
 
 ## Artifact Guide
 

@@ -64,12 +64,34 @@ python -m pytest tests -q
 
 - `team_BuriBuri.csv` with exactly 100 rows.
 - Required columns: `candidate_id,rank,score,reasoning`.
-- Runtime around 6-10 seconds locally with current artifacts.
+- Runtime around 7 seconds locally with current artifacts.
 - CPU-only ranking, no network calls, no GPU, no hosted LLM.
+
+Expected console output:
+
+```text
+=== Stage B: Ranking ===
+  [1/5] Loaded 12,567 candidates
+  [2/5] Retrieval scoring -> top 10,000 by RRF
+  [3/5] Core + cross-encoder scoring complete (1,000 candidates in pool)
+  [4/5] Behavioral modifiers + calibration...
+  [5/5] Ranks assigned -> generating reasoning for top 100 candidates
+
+Done in ~7s  ->  100 candidates ranked
+
+Output files:
+  Submission       ./team_BuriBuri.csv
+  Ranking trace    artifacts/ranking_debug.csv
+  Filtered out     artifacts/hard_disqualified_debug.csv
+  Score gaps       artifacts/rank_score_gaps.csv
+  Gap diagnostics  artifacts/score_gap_diagnostics.csv
+  YOE distribution artifacts/yoe_distribution.csv
+  Statistics       docs/ranking_statistics.md
+```
 
 ## Integrity Declaration
 
-The submitted CSV is generated from the code path in `rank.py`. Ranks come from the internal `true_unclamped_final_score`; submitted scores are fixed-scale monotonic display scores derived from that internal score. Ranking uses implemented retrieval, scoring, cross-encoder merge, behavioral modifiers, trust checks, and `weights.yaml` configuration. The reasoning column comes from `src/explainer.py`, using extracted profile facts and evidence snippets.
+The submitted CSV is generated from the code path in `rank.py`. Ranks come from the internal `true_unclamped_final_score`; submitted scores are sigmoid-mapped display scores derived from that internal score. Ranking uses implemented retrieval, scoring, cross-encoder merge, behavioral modifiers, trust checks, and `weights.yaml` configuration. The reasoning column comes from `src/explainer.py`, using extracted profile facts and evidence snippets.
 
 No candidate was manually inserted, removed, reordered, rescored, or manually given a custom explanation after generation.
 
@@ -124,6 +146,6 @@ Latest local checks:
 validate_submission.py team_BuriBuri.csv: valid
 reasoning: deterministic evidence-grounded rows spot-checked after regeneration
 py_compile: rank.py, src/behavioral.py, src/explainer.py pass
-rank.py runtime: about 6-10 seconds locally
-score range: 95.955 to 46.914
+rank.py runtime: about 7 seconds locally
+score range: 96.178 to 46.455
 ```

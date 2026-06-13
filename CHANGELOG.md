@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-06-14
+
+- Cleaned `rank.py` console output: replaced verbose phase/debug prints with 5 numbered progress steps and a grouped file-output summary at the end.
+- Removed "Large Top-40 gap warnings" count from console output (files still written to `artifacts/`).
+- Score display formula updated to sigmoid mapping onto 42–98 range.
+- Updated README, JUDGE_GUIDE, and CHANGELOG to reflect current runtime (~7s), score range (96.178–46.455), actual console output format, and correct score formula.
+
 ## 2026-06-13
 
 - Regenerated `team_BuriBuri.csv` from the current `rank.py` path and validated it with the bundled submission validator.
