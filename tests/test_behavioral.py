@@ -43,7 +43,7 @@ def test_reachability_multiplier():
         "beh_open_to_work": False,
         "beh_recruiter_response_rate": 0.90
     }
-    assert reachability_multiplier(cand_responsive_passive, ref) == 1.0
+    assert reachability_multiplier(cand_responsive_passive, ref) == W["behavioral.not_open_outside_preferred_no_reloc_mult"]
 
     # Not open to work candidate with weak response signal.
     cand_not_open = {

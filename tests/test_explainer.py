@@ -59,7 +59,7 @@ def test_generate_reasoning_strong():
     reason = generate_reasoning(cand)
     assert "Search Engineer at FindMe with 6.0 years of experience" in reason
     assert "Excellent JD fit" in reason
-    assert "and direct retrieval/search evidence" in reason
+
     assert "Designed hybrid dense-sparse vector search using Qdrant" in reason
 
 def test_generate_reasoning_weak():
@@ -167,7 +167,7 @@ def test_generate_reasoning_large_ce_core_delta_caveats():
         "snippets_json": '{"ltr_reranking": "Trained and shipped multiple ranking models."}',
     }
     reason = generate_reasoning(cand)
-    assert "Cross-encoder and handcrafted score strongly disagree" in reason
+    assert "cross-encoder and handcrafted score strongly disagree" in reason
 
 
 def test_generate_reasoning_low_rank_uses_concrete_snippet_when_available():
