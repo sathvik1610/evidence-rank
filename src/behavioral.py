@@ -177,6 +177,10 @@ def ce_core_delta(cand: dict) -> float:
     return abs(_num(cand, "core_score") - _num(cand, "ce_score"))
 
 
+def candidate_ce_score(cand: dict) -> float:
+    return _num(cand, "ce_score", _num(cand, "cross_encoder_score", 0.0))
+
+
 def ce_rescue_with_core_gap(cand: dict) -> bool:
     return (
         _num(cand, "ce_score") - _num(cand, "core_score") >= 20.0
@@ -487,6 +491,18 @@ def reachability_multiplier(cand: dict, reference_date: date) -> float:
     ):
         mult *= W["behavioral.not_open_mult"]
 
+    # Fix 6: Mild open-to-work tie-breaker penalties
+    if cand.get("beh_open_to_work") is False and response_rate >= 0.60:
+        loc = cand.get("beh_location", "").lower()
+        will_reloc = cand.get("beh_willing_to_relocate", False)
+        # simplistic check matching the external one
+        in_pref = any(city in loc for city in ["pune", "noida"])
+        in_welc = any(city in loc for city in ["delhi", "gurgaon", "gurugram", "bangalore", "bengaluru", "mumbai", "hyderabad", "chennai"])
+        if not will_reloc and not in_pref and not in_welc:
+            mult *= W["behavioral.not_open_outside_preferred_no_reloc_mult"]
+        else:
+            mult *= W["behavioral.not_open_but_reachable_mult"]
+
     if response_rate < W["behavioral.low_response_rate_threshold"]:
         mult *= W["behavioral.low_response_mult"]
 
@@ -683,6 +699,12 @@ def soft_penalties(cand: dict) -> float:
     if ce_rescue_with_core_gap(cand):
         multiplier *= W["soft_penalties.multiple_must_have_zero_mult"]
 
+    if cand.get("runtime_adjacent_internal_only_flag", False):
+        if candidate_ce_score(cand) < 60.0 and cand.get("core_score", 0.0) >= 80.0:
+            multiplier *= W["soft_penalties.adjacent_internal_only_weak_ce_mult"]
+        else:
+            multiplier *= W["soft_penalties.adjacent_internal_only_mult"]
+
     multiplier *= yoe_floor_modifier(cand)
 
     return multiplier
@@ -723,7 +745,19 @@ def compute_final_score(cand: dict, reference_date: date) -> float:
     writing_mult   = cand.get("writing_signal", 1.0)
 
     logistical_mult = notice_mult * loc_mult * seniority_mult * writing_mult
-    logistical_mult = max(logistical_mult, W["behavioral.logistical_floor"])
+    try:
+        response_rate = float(cand.get("beh_recruiter_response_rate", 0.0) or 0.0)
+    except:
+        response_rate = 0.0
+
+    if (
+        cand.get("runtime_same_project_full_system_bonus_applied", False)
+        and candidate_ce_score(cand) >= 80.0
+        and response_rate >= 0.70
+    ):
+        logistical_mult = max(logistical_mult, W["behavioral.elite_fit_logistics_penalty_floor_mult"])
+    else:
+        logistical_mult = max(logistical_mult, W["behavioral.logistical_floor"])
 
     combined_mult = reachability_mult * penalty_mult * logistical_mult
     if not has_floor_exempt_penalty(cand):
@@ -771,37 +805,149 @@ def compute_final_score(cand: dict, reference_date: date) -> float:
         if has_severe_must_have_gap(cand) or cand.get("career_ir_density", 1.0) < W["scoring.low_career_ir_density_threshold"]:
             full_plan_bonus *= W["behavioral.runtime_full_plan_must_have_gap_mult"]
 
+    # Part 4 (Fix 2): Same-project full-system bonus (STRICT) + partial bonus
+    full_system_bonus = (
+        W["behavioral.same_project_full_system_bonus"]
+        if cand.get("runtime_same_project_full_system_bonus_applied", False)
+        else (
+            W["behavioral.same_project_partial_system_bonus"]
+            if cand.get("runtime_same_project_partial_system_bonus_applied", False)
+            else 0.0
+        )
+    )
+    cand["runtime_same_project_full_system_bonus_value"] = full_system_bonus
+    cand["runtime_same_project_bonus_type"] = "full" if cand.get("runtime_same_project_full_system_bonus_applied", False) else "partial" if cand.get("runtime_same_project_partial_system_bonus_applied", False) else "none"
+
+    # Part 5: Recruiter/Candidate workflow bonus
+    recruiter_workflow_bonus = (
+        W["behavioral.recruiter_candidate_workflow_bonus"]
+        if cand.get("runtime_recruiter_workflow_bonus_applied", False)
+        else 0.0
+    )
+    cand["runtime_recruiter_candidate_workflow_bonus_value"] = recruiter_workflow_bonus
+
+    cand["runtime_passive_responsive_exact_fit_bonus_applied"] = False
+    cand["runtime_passive_responsive_exact_fit_bonus"] = 0.0
+    cand["runtime_passive_responsive_exact_fit_reason"] = ""
+    passive_responsive_exact_fit_bonus = 0.0
+    if (
+        cand.get("runtime_same_project_full_system_bonus_applied", False)
+        and cand.get("runtime_recruiter_workflow_bonus_applied", False)
+        and candidate_ce_score(cand) >= 80.0
+        and response_rate >= 0.80
+        and cand.get("beh_open_to_work") is False
+        and notice_days <= W["behavioral.notice_mild_days"]
+        and cand.get("beh_willing_to_relocate", False)
+        and not has_true_disqualifier(cand)
+    ):
+        passive_responsive_exact_fit_bonus = W["behavioral.passive_responsive_exact_fit_bonus"]
+        cand["runtime_passive_responsive_exact_fit_bonus_applied"] = True
+        cand["runtime_passive_responsive_exact_fit_bonus"] = passive_responsive_exact_fit_bonus
+        cand["runtime_passive_responsive_exact_fit_reason"] = "full_system_recruiter_workflow_passive_but_responsive"
+
+    # Fix 3: Split-career core coverage bonus
+    split_career_bonus = (
+        W["behavioral.split_career_core_coverage_bonus"]
+        if cand.get("runtime_split_career_core_coverage_bonus_applied", False)
+        and not cand.get("runtime_same_project_full_system_bonus_applied", False)
+        else 0.0
+    )
+    cand["runtime_split_career_bonus_value"] = split_career_bonus
+
+    # Fix 5: Evidence-level gating — apply as a phase4_score component modifier
+    retrieval_level = int(cand.get("runtime_retrieval_evidence_level", 2))
+    vector_level    = int(cand.get("runtime_vector_evidence_level", 2))
+    ltr_level       = int(cand.get("runtime_ltr_evidence_level", 2))
+    eval_level      = int(cand.get("runtime_eval_evidence_level", 2))
+    product_level   = int(cand.get("runtime_product_evidence_level", 2))
+
+    avg_level = (retrieval_level + vector_level + ltr_level + eval_level + product_level) / 5.0
+    evidence_gating_mult = 0.75 + 0.125 * avg_level
+    evidence_gating_mult = max(0.75, min(1.0, evidence_gating_mult))
+    cand["runtime_evidence_gating_multiplier"] = round(evidence_gating_mult, 4)
+
+    cand["runtime_retrieval_bonus_level"] = retrieval_level
+    cand["runtime_vector_bonus_level"] = vector_level
+    cand["runtime_ltr_bonus_level"] = ltr_level
+    cand["runtime_eval_bonus_level"] = eval_level
+    cand["runtime_product_bonus_level"] = product_level
+    cand["runtime_retrieval_bonus_applied"] = 0.0
+    cand["runtime_vector_bonus_applied"] = 0.0
+    cand["runtime_ltr_bonus_applied"] = 0.0
+    cand["runtime_eval_bonus_applied"] = 0.0
+    cand["runtime_product_bonus_applied"] = 0.0
+
+    # Fix 2: Partial system logistics risk penalty
+    cand["runtime_partial_system_with_logistics_risk_penalty_applied"] = False
+    cand["runtime_partial_system_with_logistics_risk_multiplier"] = 1.0
+    cand["runtime_partial_system_with_logistics_risk_reason"] = ""
+    cand["runtime_partial_system_low_ce_low_response_penalty_applied"] = False
+    cand["runtime_partial_system_low_ce_low_response_multiplier"] = 1.0
+    cand["runtime_partial_system_low_ce_low_response_reason"] = ""
+    partial_risk_mult = 1.0
+
+    if (
+        cand.get("runtime_same_project_bonus_type") == "partial"
+        and not cand.get("runtime_recruiter_workflow_bonus_applied", False)
+        and ltr_level == 0
+        and has_location_risk(cand)
+    ):
+        partial_risk_mult = W["behavioral.partial_system_with_logistics_risk_mult"]
+        cand["runtime_partial_system_with_logistics_risk_penalty_applied"] = True
+        cand["runtime_partial_system_with_logistics_risk_multiplier"] = partial_risk_mult
+        cand["runtime_partial_system_with_logistics_risk_reason"] = "partial_system_with_no_workflow_no_ltr_and_location_risk"
+
+    partial_quality_mult = 1.0
+    if (
+        cand.get("runtime_same_project_bonus_type") == "partial"
+        and not cand.get("runtime_same_project_full_system_bonus_applied", False)
+        and not cand.get("runtime_recruiter_workflow_bonus_applied", False)
+        and candidate_ce_score(cand) < 50.0
+        and response_rate < 0.50
+    ):
+        partial_quality_mult = W["behavioral.partial_system_low_ce_low_response_mult"]
+        cand["runtime_partial_system_low_ce_low_response_penalty_applied"] = True
+        cand["runtime_partial_system_low_ce_low_response_multiplier"] = partial_quality_mult
+        cand["runtime_partial_system_low_ce_low_response_reason"] = "partial_system_with_low_ce_and_low_recruiter_response"
+
     base_final = (
-        phase4_score * combined_mult
+        phase4_score * combined_mult * evidence_gating_mult * partial_risk_mult * partial_quality_mult
         + ninety_day_bonus
         + elite_plan_bonus
         + social_boost
         + full_plan_bonus
+        + full_system_bonus
+        + recruiter_workflow_bonus
+        + passive_responsive_exact_fit_bonus
+        + split_career_bonus
     )
     final = base_final + full_plan_band_bonus(cand, base_final)
 
+    cand["true_unclamped_final_score"] = round(float(final), 6)
+    cand["raw_final_score"] = round(float(final), 6)
+
     # Floor protection: if penalties are extreme, force to 0.0
     if penalty_mult < W["behavioral.penalty_floor_zero"]:
+        cand["true_unclamped_final_score"] = 0.0
+        cand["raw_final_score"] = 0.0
         return 0.0
 
     ceiling = must_have_score_ceiling(cand)
     if ceiling is not None:
         final = min(final, ceiling)
 
-    final = min(final, 120.0)
+    # Final clamping
+    final = min(final, 100.0)
+    cand["final_score"] = final
     return round(float(final), 6)
 
 
 def assign_ranks(scored_candidates: list) -> list:
     sorted_cands = sorted(
         scored_candidates,
-        key=lambda c: (-c.get("final_score", 0.0), c.get("candidate_id", ""))
+        key=lambda c: (-c.get("true_unclamped_final_score", c.get("raw_final_score", c.get("final_score", 0.0))), c.get("candidate_id", ""))
     )
     for rank, c in enumerate(sorted_cands, start=1):
         c["rank"] = rank
-
-    for i in range(1, len(sorted_cands)):
-        assert sorted_cands[i]["final_score"] <= sorted_cands[i-1]["final_score"], \
-            "Score sorting failed"
 
     return sorted_cands

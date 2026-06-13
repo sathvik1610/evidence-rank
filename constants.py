@@ -22,6 +22,7 @@ VALIDATE_SUBMISSION_SCRIPT = "validate_submission.py"
 # ---------------------------------------------------------------------------
 JD_CONTRACT_YAML = "metadata/JD_contract.yaml"
 VALIDATION_SET_JSON = "metadata/validation_set.json"
+CE_QUERY_PROFILE_MD = "docs/ce_query_profile.md"
 
 # ---------------------------------------------------------------------------
 # Artifacts directory
@@ -68,7 +69,8 @@ SUBMISSION_CSV = "submission.csv"
 # Model IDs
 # ---------------------------------------------------------------------------
 BGE_M3_MODEL_ID        = "BAAI/bge-m3"
-BGE_RERANKER_MODEL_ID  = "BAAI/bge-reranker-v2-m3"
+BGE_RERANKER_MODEL_ID  = "BAAI/bge-reranker-v2-m3"  # kept for audit/debug only
+CE_RERANKER_MODEL      = "BAAI/bge-reranker-v2-m3"  # production CE model
 
 # ---------------------------------------------------------------------------
 # Pipeline parameters (non-tunable structural constants — NOT in weights.yaml)
@@ -129,6 +131,8 @@ TARGET_SKILL_DURATION_TERMS = (
 
 # Cross-encoder: how many candidates to score offline
 CE_PRECOMPUTE_TOPK = 15000  # Score widened retrieval pool when GPU is available
+CE_MAX_LENGTH      = 4096   # bge-reranker-v2-m3 max input tokens per pair
+CE_BATCH_SIZE      = 4      # M3 reranker is large; keep batch small for A100/T4
 
 # Honeypot score threshold for suspicious_flag
 HONEYPOT_SUSPICIOUS_THRESHOLD = 0.70

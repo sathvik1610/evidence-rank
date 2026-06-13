@@ -60,6 +60,97 @@ def load_candidate_ids(path: str) -> set[str]:
                     ids.add(str(item["candidate_id"]))
     return ids
 
+
+def visible_submission_score(cand: dict, raw_min: float, raw_max: float) -> float:
+    """Map the real internal score onto a readable fixed 1-100 submission scale."""
+    raw_score = float(cand.get("true_unclamped_final_score", cand.get("final_score", 0.0)) or 0.0)
+    calibrated = 12.0 + 0.79 * raw_score
+    return round(max(1.0, min(96.0, calibrated)), 3)
+
+
+def _as_float(cand: dict, key: str, default: float = 0.0) -> float:
+    try:
+        return float(cand.get(key, default) or 0.0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _flag(cand: dict, key: str) -> bool:
+    return bool(cand.get(key, False))
+
+
+def score_bonus_total(cand: dict) -> float:
+    return round(
+        _as_float(cand, "runtime_same_project_full_system_bonus_value")
+        + _as_float(cand, "runtime_recruiter_candidate_workflow_bonus_value")
+        + _as_float(cand, "runtime_passive_responsive_exact_fit_bonus")
+        + _as_float(cand, "runtime_split_career_bonus_value"),
+        6,
+    )
+
+
+def bonus_reasons(cand: dict) -> str:
+    reasons = []
+    if _as_float(cand, "runtime_same_project_full_system_bonus_value") > 0:
+        reasons.append(f"same_project_{cand.get('runtime_same_project_bonus_type', 'none')}")
+    if _flag(cand, "runtime_recruiter_workflow_bonus_applied"):
+        reasons.append("recruiter_workflow")
+    if _flag(cand, "runtime_passive_responsive_exact_fit_bonus_applied"):
+        reasons.append("passive_responsive_exact_fit")
+    if _as_float(cand, "runtime_split_career_bonus_value") > 0:
+        reasons.append("split_career_core_coverage")
+    if _as_float(cand, "ninety_day_alignment") > 0:
+        reasons.append("ninety_day_alignment")
+    return ";".join(reasons) or "none"
+
+
+def penalty_multiplier_total(cand: dict) -> float:
+    return round(
+        _as_float(cand, "runtime_evidence_gating_multiplier", 1.0)
+        * _as_float(cand, "runtime_partial_system_with_logistics_risk_multiplier", 1.0)
+        * _as_float(cand, "runtime_partial_system_low_ce_low_response_multiplier", 1.0),
+        6,
+    )
+
+
+def penalty_reasons(cand: dict) -> str:
+    reasons = []
+    if _flag(cand, "runtime_partial_system_with_logistics_risk_penalty_applied"):
+        reasons.append("partial_system_logistics_risk")
+    if _flag(cand, "runtime_partial_system_low_ce_low_response_penalty_applied"):
+        reasons.append("partial_system_low_ce_low_response")
+    if _flag(cand, "runtime_adjacent_internal_only_flag"):
+        reasons.append("adjacent_internal_only")
+    if has_location_risk(cand):
+        reasons.append("location_risk")
+    if has_notice_risk(cand):
+        reasons.append("notice_risk")
+    if _as_float(cand, "beh_recruiter_response_rate", 1.0) < 0.50:
+        reasons.append("low_response")
+    if cand.get("beh_open_to_work") is False:
+        reasons.append("not_open_to_work")
+    return ";".join(reasons) or "none"
+
+
+def suspected_gap_cause(upper: dict, lower: dict) -> str:
+    causes = []
+    if _flag(upper, "runtime_same_project_full_system_bonus_applied") != _flag(lower, "runtime_same_project_full_system_bonus_applied"):
+        causes.append("full-system bonus difference")
+    if _flag(upper, "runtime_recruiter_workflow_bonus_applied") != _flag(lower, "runtime_recruiter_workflow_bonus_applied"):
+        causes.append("recruiter workflow bonus difference")
+    if _flag(upper, "runtime_partial_system_with_logistics_risk_penalty_applied") != _flag(lower, "runtime_partial_system_with_logistics_risk_penalty_applied"):
+        causes.append("partial-system logistics penalty difference")
+    if _flag(upper, "runtime_partial_system_low_ce_low_response_penalty_applied") != _flag(lower, "runtime_partial_system_low_ce_low_response_penalty_applied"):
+        causes.append("partial-system low-CE/low-response penalty difference")
+    if abs(_as_float(upper, "ce_score") - _as_float(lower, "ce_score")) >= 15.0:
+        causes.append("CE semantic-match gap")
+    if abs(_as_float(upper, "core_score") - _as_float(lower, "core_score")) >= 10.0:
+        causes.append("core technical-score gap")
+    if penalty_reasons(upper) != penalty_reasons(lower):
+        causes.append("logistics/availability penalty difference")
+    return "; ".join(causes) or "true technical gap or unclear"
+
+
 def main():
     start_time = time.time()
     
@@ -136,7 +227,6 @@ def main():
         for c in candidates
     ]
 
-    eligible_candidates = []
     hard_disqualified = []
     for cand in candidates:
         reason = hard_disqualification_reason(cand)
@@ -148,9 +238,6 @@ def main():
         else:
             cand["hard_disqualified"] = False
             cand["hard_disqualification_reason"] = ""
-            eligible_candidates.append(cand)
-    candidates = eligible_candidates
-    
     # Reference date for ghost detection and reachability
     # We load run metadata to get the actual reference time, or default to mid-2026
     ref_date = date(2026, 6, 1)
@@ -170,11 +257,14 @@ def main():
 
     print("Running Phase 5 (Behavioral Modifiers)...")
     for cand in candidates:
-        cand["final_score"] = compute_final_score(cand, ref_date)
-        
+        raw = compute_final_score(cand, ref_date)
+        # Preserve the internal unclamped score which is computed inside compute_final_score
+        true_score = cand.get("true_unclamped_final_score", raw)
+        cand["final_score"] = min(true_score, 100.0)
+
     # Phase 5b: Rank Assignment
     candidates = assign_ranks(candidates)
-    
+
     # Official submissions must contain exactly 100 rows. For sample/sandbox
     # inputs with fewer than 100 candidates, output the available ranked rows.
     if len(candidate_ids) >= 100:
@@ -184,6 +274,12 @@ def main():
     
     debug_top_n = max(100, int(args.debug_top_n))
     debug_candidates = candidates[: min(debug_top_n, len(candidates))]
+    submission_raw_scores = [
+        float(c.get("true_unclamped_final_score", c.get("final_score", 0.0)) or 0.0)
+        for c in top_100
+    ]
+    score_raw_min = min(submission_raw_scores) if submission_raw_scores else 0.0
+    score_raw_max = max(submission_raw_scores) if submission_raw_scores else 0.0
 
     print(f"Running Phase 6 (Reason Generation) for Top {len(top_100)} submission rows and Top {len(debug_candidates)} debug rows...")
     debug_records = []
@@ -193,11 +289,12 @@ def main():
     for cand in top_100:
         reason = generate_reasoning(cand)
         reason_cache[cand["candidate_id"]] = reason
+        visible_score = visible_submission_score(cand, score_raw_min, score_raw_max)
         
         output_records.append({
             "candidate_id": cand["candidate_id"],
             "rank": cand["rank"],
-            "score": cand["final_score"],
+            "score": visible_score,
             "reasoning": reason
         })
 
@@ -208,10 +305,12 @@ def main():
 
         missing = missing_must_have_buckets(cand)
         # Debug trace
+        visible_score = visible_submission_score(cand, score_raw_min, score_raw_max)
         debug_records.append({
             "candidate_id": cand["candidate_id"],
             "rank": cand["rank"],
-            "score": cand["final_score"],
+            "score": visible_score,
+            "final_score": round(cand.get("final_score", 0.0), 6),
             "core_score": round(cand.get("core_score", 0.0), 2),
             "ce_score": round(cand.get("ce_score", 0.0), 2),
             "ce_core_delta": round(ce_core_delta(cand), 2),
@@ -265,6 +364,50 @@ def main():
             "runtime_corroborated_vector_signal": cand.get("runtime_corroborated_vector_signal", 0.0),
             "runtime_career_python_signal": cand.get("runtime_career_python_signal", 0.0),
             "runtime_current_services_signal": cand.get("runtime_current_services_signal", 0.0),
+            # Part 9: raw vs clamped score
+            "true_unclamped_final_score": round(cand.get("true_unclamped_final_score", cand.get("raw_final_score", cand["final_score"])), 6),
+            "raw_final_score": round(cand.get("raw_final_score", cand["final_score"]), 6),
+            # Fix 2: Partial system logistics risk penalty
+            "partial_system_with_logistics_risk_penalty_applied": cand.get("runtime_partial_system_with_logistics_risk_penalty_applied", False),
+            "partial_system_with_logistics_risk_multiplier": cand.get("runtime_partial_system_with_logistics_risk_multiplier", 1.0),
+            "partial_system_with_logistics_risk_reason": cand.get("runtime_partial_system_with_logistics_risk_reason", ""),
+            # Part 4: Same-project full-system bonus
+            "same_project_full_system_bonus_applied": cand.get("runtime_same_project_full_system_bonus_applied", False),
+            "same_project_partial_system_bonus_applied": cand.get("runtime_same_project_partial_system_bonus_applied", False),
+            "runtime_same_project_bonus_type": cand.get("runtime_same_project_bonus_type", "none"),
+            "runtime_split_career_bonus_value": cand.get("runtime_split_career_bonus_value", 0.0),
+            "runtime_evidence_gating_multiplier": cand.get("runtime_evidence_gating_multiplier", 1.0),
+            "runtime_adjacent_internal_only_flag": cand.get("runtime_adjacent_internal_only_flag", False),
+            "same_project_full_system_bonus": cand.get("runtime_same_project_full_system_bonus_value", 0.0),
+            "same_project_full_system_evidence_groups": cand.get("runtime_same_project_full_system_evidence_groups", ""),
+            "same_project_full_system_evidence_snippet": cand.get("runtime_same_project_full_system_evidence_snippet", ""),
+            # Part 5: Recruiter/Candidate workflow bonus
+            "recruiter_candidate_workflow_bonus_applied": cand.get("runtime_recruiter_workflow_bonus_applied", False),
+            "recruiter_candidate_workflow_bonus": cand.get("runtime_recruiter_candidate_workflow_bonus_value", 0.0),
+            "recruiter_candidate_workflow_evidence_snippet": cand.get("runtime_recruiter_workflow_evidence_snippet", ""),
+            "passive_responsive_exact_fit_bonus_applied": cand.get("runtime_passive_responsive_exact_fit_bonus_applied", False),
+            "passive_responsive_exact_fit_bonus": cand.get("runtime_passive_responsive_exact_fit_bonus", 0.0),
+            "passive_responsive_exact_fit_reason": cand.get("runtime_passive_responsive_exact_fit_reason", ""),
+            "partial_system_low_ce_low_response_penalty_applied": cand.get("runtime_partial_system_low_ce_low_response_penalty_applied", False),
+            "partial_system_low_ce_low_response_multiplier": cand.get("runtime_partial_system_low_ce_low_response_multiplier", 1.0),
+            "partial_system_low_ce_low_response_reason": cand.get("runtime_partial_system_low_ce_low_response_reason", ""),
+            # Part 3: Evidence bonus levels
+            "retrieval_bonus_level": cand.get("runtime_retrieval_bonus_level", 0),
+            "vector_bonus_level": cand.get("runtime_vector_bonus_level", 0),
+            "ltr_bonus_level": cand.get("runtime_ltr_bonus_level", 0),
+            "eval_bonus_level": cand.get("runtime_eval_bonus_level", 0),
+            "product_bonus_level": cand.get("runtime_product_bonus_level", 0),
+            # Part 6: Adjacent/internal-only penalty
+            "adjacent_internal_only_penalty_applied": cand.get("runtime_adjacent_internal_only_penalty_applied", False),
+            "adjacent_internal_only_penalty_multiplier": cand.get("runtime_adjacent_internal_only_penalty_multiplier", 1.0),
+            "adjacent_internal_only_reason": cand.get("runtime_adjacent_internal_only_reason", ""),
+            # Part 2: Skill-duration bypass
+            "skill_duration_penalty_bypassed": cand.get("runtime_skill_duration_penalty_bypassed", False),
+            "skill_duration_penalty_bypass_reason": cand.get("runtime_skill_duration_penalty_bypass_reason", ""),
+            # Part 7: Elite logistics cap
+            "elite_fit_logistics_cap_applied": cand.get("runtime_elite_fit_logistics_cap_applied", False),
+            "raw_logistics_multiplier_before_cap": cand.get("runtime_raw_logistics_multiplier_before_cap", 0.0),
+            "final_logistics_multiplier_after_cap": cand.get("runtime_final_logistics_multiplier_after_cap", 0.0),
             "reasoning": reason,
             "concern": get_largest_concern(cand)
         })
@@ -329,6 +472,60 @@ def main():
             "gap": round(float(prev["final_score"]) - float(curr["final_score"]), 6),
         })
     pd.DataFrame(score_gap_records).to_csv("artifacts/rank_score_gaps.csv", index=False)
+
+    detailed_gap_records = []
+    large_gap_warning_records = []
+    for upper, lower in zip(top_100, top_100[1:]):
+        upper_true = _as_float(upper, "true_unclamped_final_score", _as_float(upper, "final_score"))
+        lower_true = _as_float(lower, "true_unclamped_final_score", _as_float(lower, "final_score"))
+        gap = round(upper_true - lower_true, 6)
+        cause = suspected_gap_cause(upper, lower)
+        detailed_gap_records.append({
+            "upper_rank": upper.get("rank", ""),
+            "lower_rank": lower.get("rank", ""),
+            "upper_candidate_id": upper.get("candidate_id", ""),
+            "lower_candidate_id": lower.get("candidate_id", ""),
+            "upper_true_unclamped_final_score": round(upper_true, 6),
+            "lower_true_unclamped_final_score": round(lower_true, 6),
+            "score_gap": gap,
+            "upper_bonus_total": score_bonus_total(upper),
+            "lower_bonus_total": score_bonus_total(lower),
+            "upper_penalty_multiplier_total": penalty_multiplier_total(upper),
+            "lower_penalty_multiplier_total": penalty_multiplier_total(lower),
+            "upper_ce_score": round(_as_float(upper, "ce_score"), 2),
+            "lower_ce_score": round(_as_float(lower, "ce_score"), 2),
+            "upper_core_score": round(_as_float(upper, "core_score"), 2),
+            "lower_core_score": round(_as_float(lower, "core_score"), 2),
+            "upper_bonus_reasons": bonus_reasons(upper),
+            "lower_bonus_reasons": bonus_reasons(lower),
+            "upper_penalty_reasons": penalty_reasons(upper),
+            "lower_penalty_reasons": penalty_reasons(lower),
+            "suspected_gap_cause": cause,
+        })
+
+        if int(upper.get("rank", 9999)) <= 40 and gap > 4.0:
+            expected = (
+                _flag(upper, "runtime_same_project_full_system_bonus_applied")
+                and _flag(upper, "runtime_recruiter_workflow_bonus_applied")
+                and _as_float(upper, "ce_score") >= 80.0
+                and (
+                    not _flag(lower, "runtime_recruiter_workflow_bonus_applied")
+                    or _as_float(lower, "ce_score") < 50.0
+                    or lower.get("runtime_same_project_bonus_type") in ("partial", "none")
+                )
+            )
+            large_gap_warning_records.append({
+                "upper_rank": upper.get("rank", ""),
+                "lower_rank": lower.get("rank", ""),
+                "upper_candidate_id": upper.get("candidate_id", ""),
+                "lower_candidate_id": lower.get("candidate_id", ""),
+                "gap": gap,
+                "likely_reason": cause,
+                "is_expected_gap": expected,
+            })
+
+    pd.DataFrame(detailed_gap_records).to_csv("artifacts/score_gap_diagnostics.csv", index=False)
+    pd.DataFrame(large_gap_warning_records).to_csv("artifacts/large_gap_warnings.csv", index=False)
 
     yoe_records = []
     for label, subset in (("top10", candidates[:10]), ("top25", candidates[:25]), ("top100", top_100)):
@@ -433,7 +630,12 @@ def main():
     print(f"Successfully wrote {len(out_df)} candidates to {args.out}")
     print(f"Debug trace written to artifacts/ranking_debug.csv")
     print("Hard-disqualification trace written to artifacts/hard_disqualified_debug.csv")
-    print("Diagnostics written to artifacts/rank_score_gaps.csv and artifacts/yoe_distribution.csv")
+    print(
+        "Diagnostics written to artifacts/rank_score_gaps.csv, "
+        "artifacts/score_gap_diagnostics.csv, artifacts/large_gap_warnings.csv, "
+        "and artifacts/yoe_distribution.csv"
+    )
+    print(f"Large Top-40 gap warnings: {len(large_gap_warning_records)}")
     print(f"Runtime: {elapsed:.2f} seconds.")
 
 if __name__ == "__main__":

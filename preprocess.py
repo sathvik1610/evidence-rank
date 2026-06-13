@@ -58,7 +58,7 @@ def get_cross_encoder():
     from FlagEmbedding import FlagReranker
     device = "cuda" if torch.cuda.is_available() else "cpu"
     use_fp16 = (device == "cuda")
-    return FlagReranker(constants.BGE_RERANKER_MODEL_ID, use_fp16=use_fp16)
+    return FlagReranker(constants.CE_RERANKER_MODEL, use_fp16=use_fp16)
 
 # ---------------------------------------------------------------------------
 # Date and Text Helpers
@@ -834,13 +834,17 @@ def run_phase_1c_features(candidates, is_skip_embed=False, force_all=False):
 # Phase 1e: Cross-Encoder
 # ---------------------------------------------------------------------------
 
-def run_phase_1e_cross_encoder(candidates, model):
+def run_phase_1e_cross_encoder(candidates, model, retrieval_path=None, output_path=None):
     print("\n--- Phase 1e: Cross-Encoder ---")
-    retrieval_df = pl.read_parquet(constants.RETRIEVAL_SCORES_PARQUET)
-    top_ids = retrieval_df["candidate_id"].head(constants.CE_PRECOMPUTE_TOPK).to_list()
+    _retrieval_path = retrieval_path or constants.RETRIEVAL_SCORES_PARQUET
+    retrieval_df = pl.read_parquet(_retrieval_path)
+    top_ids = retrieval_df["candidate_id"].to_list()  # use all rows in the parquet (partition-aware)
     top_set = set(top_ids)
     
-    jd_v1 = build_jd_intelligence(constants.JD_CONTRACT_YAML, constants.JD_TEXT)["cross_encoder_query"]
+    # CE query loaded directly from docs/ce_query_profile.md.
+    # No YAML generation, no keyword lists, no JD anchors, no HyDE text.
+    with open(constants.CE_QUERY_PROFILE_MD, "r", encoding="utf-8") as _f:
+        jd_v1 = _f.read().strip()
     
     pairs = []
     pair_cids = []
@@ -852,18 +856,20 @@ def run_phase_1e_cross_encoder(candidates, model):
             
     print(f"Scoring {len(pairs)} candidates with cross-encoder...")
     # Process in chunks to avoid OOM
-    batch_size = 32
+    batch_size = constants.CE_BATCH_SIZE
     scores = []
-    for i in tqdm(range(0, len(pairs), batch_size)):
+    for i in tqdm(range(0, len(pairs), batch_size), mininterval=15.0, maxinterval=60.0, smoothing=0.0):
         batch = pairs[i:i + batch_size]
-        batch_scores = model.compute_score(batch)
+        batch_scores = model.compute_score(batch, max_length=constants.CE_MAX_LENGTH)
         if isinstance(batch_scores, float):
             batch_scores = [batch_scores]
         scores.extend(batch_scores)
         
     df = pd.DataFrame({"candidate_id": pair_cids, "ce_score": scores})
-    df.to_parquet(constants.CROSS_ENCODER_SCORES_PARQUET)
-    print(f"Cross-encoder scores saved to {constants.CROSS_ENCODER_SCORES_PARQUET}")
+    _output_path = output_path or constants.CROSS_ENCODER_SCORES_PARQUET
+    os.makedirs(os.path.dirname(_output_path) or ".", exist_ok=True)
+    df.to_parquet(_output_path)
+    print(f"Cross-encoder scores saved to {_output_path} ({len(df)} candidates)")
 
 
 # ---------------------------------------------------------------------------
@@ -875,6 +881,10 @@ def main():
     parser.add_argument("--candidates", type=str, default=constants.CANDIDATES_JSONL, help="Path to candidates.jsonl")
     parser.add_argument("--skip-embed", action="store_true", help="Skip heavy embedding phases for local testing (runs honeypot & features only)")
     parser.add_argument("--only-cross-encoder", action="store_true", help="Only refresh cross-encoder scores for the current retrieval pool")
+    parser.add_argument("--retrieval", type=str, default=None,
+                        help="Path to retrieval parquet (partition support). Default: constants.RETRIEVAL_SCORES_PARQUET")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Path for CE output parquet (partition support). Default: constants.CROSS_ENCODER_SCORES_PARQUET")
     parser.add_argument("--sample", action="store_true", help="Run on a small sample of candidates (usually 50)")
     args = parser.parse_args()
     
@@ -898,8 +908,16 @@ def main():
 
     if args.only_cross_encoder:
         print("\nRunning only Phase 1e Cross-Encoder refresh")
+        if args.retrieval:
+            print(f"  Retrieval source: {args.retrieval}")
+        if args.output:
+            print(f"  Output target:    {args.output}")
         ce_model = get_cross_encoder()
-        run_phase_1e_cross_encoder(candidates, ce_model)
+        run_phase_1e_cross_encoder(
+            candidates, ce_model,
+            retrieval_path=args.retrieval,
+            output_path=args.output,
+        )
         print("\nCross-Encoder Refresh Complete!")
         return
     

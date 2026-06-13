@@ -103,9 +103,9 @@ soft_penalties:
   research_only_mult:   0.40  # No engineering titles
   wrong_domain_mult:    0.50  # CV/speech/robotics without NLP/IR
   closed_source_mult:   0.80  # 5+ years no external validation
-  target_skill_duration_one_mult:   0.92  # One target skill duration exceeds claimed YoE + buffer
-  target_skill_duration_multi_mult: 0.80  # Multiple noisy target-skill contradictions; softened for strong career evidence in code
-  target_skill_duration_strong_plan_mult: 0.86
+  target_skill_duration_one_mult:   0.96  # One target skill duration exceeds claimed YoE + buffer
+  target_skill_duration_multi_mult: 0.90  # Multiple noisy target-skill contradictions; softened for strong career evidence in code
+  target_skill_duration_strong_plan_mult: 0.94
   adjacent_domain_weak_ir_mult:     0.55  # CV/speech/robotics title with weak retrieval/vector/eval evidence
   current_consulting_weak_ir_mult:  0.60  # Current consulting firm plus weak target/product evidence
   current_services_default_mult:    0.94  # Current services context is a top-rank tie-break risk
@@ -155,6 +155,11 @@ soft_penalties:
     - robotics
     - speech recognition
 
+  # Part 6: Adjacent/internal-only career penalty (Fix 4: weakened)
+  # Applied when strongest evidence is KB/chatbot/RAG-only and no full/partial system bonus
+  adjacent_internal_only_mult:          0.90  # weakened from 0.82 to avoid false positives
+  adjacent_internal_only_weak_ce_mult:  0.84  # weakened from 0.74 to avoid false positives
+
 # ---------------------------------------------------------------------------
 # Phase 5 — Behavioral reachability multipliers
 # Applied multiplicatively on top of the Phase 4 final score
@@ -180,17 +185,17 @@ behavioral:
   notice_moderate_days: 90    # <= this → moderate penalty
   notice_ideal_mult:    1.00
   notice_mild_mult:     0.95
-  notice_moderate_mult: 0.80
-  notice_bad_mult:      0.55  # > notice_moderate_days
+  notice_moderate_mult: 0.87
+  notice_bad_mult:      0.62  # > notice_moderate_days
 
   # Location modifiers
   location_pune_noida_mult:        1.04
   location_welcome_cities_mult:    1.00  # hyderabad, mumbai (with relocation)
   location_welcome_no_reloc:       0.97
-  location_india_willing_mult:     0.94
-  location_india_no_reloc_mult:    0.84
-  location_abroad_willing_mult:    0.80
-  location_abroad_no_reloc_mult:   0.65
+  location_india_willing_mult:     0.95
+  location_india_no_reloc_mult:    0.90
+  location_abroad_willing_mult:    0.82
+  location_abroad_no_reloc_mult:   0.58
 
   # Combined multiplier floors
   logistical_floor:  0.60  # Logistics group cannot reduce score by > 40%
@@ -204,7 +209,7 @@ behavioral:
 
   # Additive bonuses
   ninety_day_bonus_max: 5.0   # ninety_day_alignment (0-1) * this
-  reachable_elite_plan_bonus: 10.0  # strong full-plan fit, reachable, willing to relocate
+  reachable_elite_plan_bonus: 8.0  # strong full-plan fit, reachable, willing to relocate
   reachable_elite_ce_threshold: 60.0
   reachable_elite_phase4_max: 85.0
   full_plan_band_score_min: 65.0  # only rescue strong review-band candidates
@@ -244,15 +249,40 @@ behavioral:
   # Floor for penalty_mult below which score is forced to 0.0
   penalty_floor_zero: 0.20
 
+  # Part 4 (Fix 2): Same-project full-system bonus — STRICT version
+  # Fires only when same role has production + eval + vector + (ranking/LTR OR recruiter/workflow)
+  same_project_full_system_bonus: 4.0
+  # Partial bonus: 4+ groups but missing strict ranking/recruiter requirement
+  same_project_partial_system_bonus: 1.5
+  partial_system_with_logistics_risk_mult: 0.89
+  passive_responsive_exact_fit_bonus: 1.25
+  partial_system_low_ce_low_response_mult: 0.94
+
+  # Part 5: Recruiter/Candidate workflow bonus
+  # Fires from career-history text only (not skills), when recruiter/candidate matching is central
+  recruiter_candidate_workflow_bonus: 2.0
+
+  # Part 3 (Fix 3): Split-career core coverage bonus
+  # Fires when career overall covers ranking/eval in one role + vector/search in another
+  split_career_core_coverage_bonus: 1.5
+
+  # Part 7: Logistics penalty cap for elite technical fits
+  # Applies when same_project_full_system_bonus fired + ce_score >= 80 + recruiter_response_rate >= 0.70
+  elite_fit_logistics_penalty_floor_mult: 0.90
+
+  # Fix 6: Mild open-to-work tie-breaker penalties
+  not_open_but_reachable_mult: 0.97             # open_to_work=False but response_rate >= 0.60
+  not_open_outside_preferred_no_reloc_mult: 0.92 # open_to_work=False + outside preferred + no reloc
+
 # ---------------------------------------------------------------------------
 # Phase 5 — Social proof additive boosts
 # These are additive points on the 100.0 score scale (not multipliers).
 # ---------------------------------------------------------------------------
 social_proof:
   github_threshold:         60     # github_activity_score > this to trigger
-  github_boost:              4.0   # External validation: hard-to-fake signal
+  github_boost:              2.5   # External validation: hard-to-fake signal
   saved_threshold:           5     # saved_by_recruiters_30d > this
-  saved_boost:               3.0   # Market demand: other recruiters shortlisting
+  saved_boost:               2.0   # Market demand: other recruiters shortlisting
   endorsements_threshold:   20     # endorsements_received > this
   endorsements_boost:        1.0
   interview_completion_threshold: 0.80
@@ -265,7 +295,7 @@ social_proof:
   fast_response_threshold:   4.0   # avg_response_time_hours <= this
   fast_response_rate_min:    0.60  # also needs recruiter_response_rate >= this
   fast_response_boost:       1.0
-  social_proof_max:          5.0   # Total cap on additive boosts; tie-breaker, not tier-changer
+  social_proof_max:          4.0   # Total cap on additive boosts; tie-breaker, not tier-changer
 
 # ---------------------------------------------------------------------------
 # Phase 3 — Feature extraction normalizers

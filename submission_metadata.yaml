@@ -68,7 +68,9 @@ methodology_summary: |
   high-recall Reciprocal Rank Fusion (RRF) over FAISS, CSR dot-product, BM25,
   and exact/regex rescue signals. Top retrieval candidates get rule-based feature extraction (Bucket A: IR/search skills,
   Bucket B: career quality + product company ratio + shipper signals, Bucket C: gaps).
-  bge-reranker-v2-m3 cross-encoder scores the widened pool offline.
+  bge-reranker-v2-m3 cross-encoder scores the widened pool offline. The current CE artifact
+  covers all 12,567 retrieval-pool candidates; it was produced in three non-overlapping parts
+  and merged before global rank-time normalization.
   Honeypot and ghost detection uses structural contradiction rules (impossible timelines,
   repeated copied role descriptions, zero-duration expert claims) using only candidate data.
 
@@ -77,8 +79,11 @@ methodology_summary: |
   Cross-encoder (32% weight) refines top candidates while the handcrafted score keeps JD-specific
   trust, behavior, product-company, and logistics signals dominant. A lightweight full-profile runtime
   calibration pass checks current/recent full-plan JD fit and current services context for the final slice.
-  Behavioral multipliers apply reachability, notice-period penalties, and location adjustments.
-  Reason generator assembles evidence-grounded sentences from precomputed facts — no hallucinations.
+  Behavioral multipliers apply reachability, notice-period penalties, location adjustments,
+  hard-gate scoring for true JD disqualifiers, and bounded social proof. Submitted scores are
+  fixed-scale monotonic display values derived from the internal final score, while rank order
+  is assigned from the internal score. Reason generator assembles evidence-grounded sentences
+  from precomputed facts — no hallucinations.
 
 # ============================================================================
 # Declarations

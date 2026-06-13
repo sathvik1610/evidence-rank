@@ -88,6 +88,90 @@ SERVICES_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Part 4: Same-project full-system bonus patterns
+# Group 1: Retrieval/Search/Matching
+FSYS_RETRIEVAL_RE = re.compile(
+    r"\b(search|retrieval|ranking pipeline|matching|recommendation system|"
+    r"candidate search|recruiter search|candidate.jd matching|discovery feed|"
+    r"marketplace ranking|semantic search|hybrid retrieval)\b",
+    re.IGNORECASE,
+)
+# Group 2: Embeddings/Vector/Hybrid
+FSYS_VECTOR_RE = re.compile(
+    r"\b(embedding|sentence.transformer|bge|e5|openai embedding|dense retrieval|"
+    r"sparse retrieval|hybrid retrieval|bm25.*dense|vector db|faiss|pinecone|"
+    r"weaviate|qdrant|milvus|opensearch|elasticsearch|hnsw)\b",
+    re.IGNORECASE,
+)
+# Group 3: Ranking/Reranking/LTR
+FSYS_RANKING_RE = re.compile(
+    r"\b(learning.to.rank|ltr|reranker|re.ranker|re.scoring|xgboost ranker|"
+    r"lightgbm ranker|ranker variants|ranking model|behavioral re.ranking|top.k reranking)\b",
+    re.IGNORECASE,
+)
+# Group 4: Evaluation
+FSYS_EVAL_RE = re.compile(
+    r"\b(ndcg|mrr|map@|recall@k|offline.online correlation|a/b test|a/b testing|"
+    r"human relevance judgments?|relevance labels?|recruiter feedback loop|"
+    r"eval harness|evaluation framework)\b",
+    re.IGNORECASE,
+)
+# Group 5: Production/Ops/Impact
+FSYS_PROD_RE = re.compile(
+    r"\b(production|shipped|deployed|real users|serving|qps|p95 latency|corpus|"
+    r"30m|35m|50m|engagement|time.to.shortlist|revenue.per.search|index refresh|"
+    r"embedding drift|rollback|monitoring|migration)\b",
+    re.IGNORECASE,
+)
+
+# Part 5: Recruiter/Candidate workflow bonus
+RECRUITER_WORKFLOW_RE = re.compile(
+    r"\b(recruiter.facing search|recruiter search|recruiter engagement|"
+    r"recruiter feedback loop|time.to.shortlist|candidate corpus|"
+    r"candidate profiles?|candidate.jd matching|jd matching|role matching|"
+    r"talent marketplace|hiring marketplace|candidate search product|"
+    r"matching candidates? to jobs?|matching jobs? to candidates?)\b",
+    re.IGNORECASE,
+)
+
+# Part 6: Adjacent/internal-only evidence detection
+# Strong markers that evidence is primarily internal/adjacent (not production product retrieval)
+INTERNAL_ONLY_RE = re.compile(
+    r"\b(internal knowledge base|internal kb|customer.support chatbot|"
+    r"support bot|rag chatbot|churn prediction|generic mlflow|"
+    r"internal document search|employee search|internal corpus)\b",
+    re.IGNORECASE,
+)
+# Strong markers of production product retrieval (negates internal-only classification)
+# Fix 4: Expanded to include e-commerce search, LTR, offline-online correlation, relevance labeling etc.
+PRODUCT_RETRIEVAL_RE = re.compile(
+    r"\b(recruiter.facing|candidate search|talent marketplace|"
+    r"marketplace ranking|product search|recommendation system at scale|"
+    r"real users|shipped.*search|shipped.*retrieval|production retrieval|"
+    r"e.commerce search|product discovery|ranking layer|learning.to.rank|"
+    r"relevance labeling|offline.online correlation|offline.online metric|"
+    r"recommendation.*serving|discovery feed|serving.*users|"
+    r"\d+m (candidates?|items?|queries?|users?))\b",
+    re.IGNORECASE,
+)
+
+# Fix 2: Strict ranking/LTR group check — mandatory for full-system bonus
+# (separate from FSYS_RANKING_RE which includes broader patterns)
+FSYS_STRICT_RANKING_RE = re.compile(
+    r"\b(learning.to.rank|ltr|reranker|re.ranker|re.scoring|xgboost ranker|"
+    r"lightgbm ranker|ranker variants|ranking model|ranking layer|behavioral re.ranking|"
+    r"top.k reranking|relevance labeling|ranker|ranked|re-ranked)\b",
+    re.IGNORECASE,
+)
+
+# Fix 2: Strict recruiter/candidate workflow for full-system alternative path
+FSYS_RECRUITER_RE = re.compile(
+    r"\b(recruiter.facing|recruiter search|candidate search|candidate.jd matching|"
+    r"jd matching|talent marketplace|hiring marketplace|candidate corpus|"
+    r"time.to.shortlist|recruiter feedback)\b",
+    re.IGNORECASE,
+)
+
 
 def load_candidate_records(path: str, wanted_ids: set[str]) -> dict[str, dict[str, Any]]:
     """Load complete JSON records for a small set of candidate IDs."""
@@ -261,4 +345,155 @@ def calibrate_candidate(cand: dict[str, Any], profile_record: dict[str, Any] | N
     cand["runtime_career_ship_signal"] = float(career_ship)
     cand["runtime_current_services_signal"] = float(current_services)
     cand["runtime_current_role_text"] = current_text[:280]
+
+    # -----------------------------------------------------------------------
+    # Part 4 (Fix 2): Same-project full-system bonus — STRICT version
+    # Full bonus requires: production + eval + vector + (ranking/LTR OR recruiter/candidate workflow)
+    # Partial bonus: 4+ groups matched but missing strict ranking/recruiter requirement
+    # -----------------------------------------------------------------------
+    full_system_bonus_applied = False
+    full_system_partial_applied = False
+    full_system_groups_found = []
+    full_system_snippet = ""
+    best_group_count = 0
+    for role in roles:
+        role_text = _role_text(role)
+        has_retrieval = bool(FSYS_RETRIEVAL_RE.search(role_text))
+        has_vector    = bool(FSYS_VECTOR_RE.search(role_text))
+        has_ranking   = bool(FSYS_RANKING_RE.search(role_text))
+        has_eval      = bool(FSYS_EVAL_RE.search(role_text))
+        has_prod      = bool(FSYS_PROD_RE.search(role_text))
+        # Strict checks for full bonus path
+        has_strict_ranking   = bool(FSYS_STRICT_RANKING_RE.search(role_text))
+        has_strict_recruiter = bool(FSYS_RECRUITER_RE.search(role_text))
+
+        matched = [
+            ("retrieval", has_retrieval),
+            ("vector",    has_vector),
+            ("ranking",   has_ranking),
+            ("evaluation",has_eval),
+            ("production",has_prod),
+        ]
+        matched_names = [name for name, found in matched if found]
+        if len(matched_names) > best_group_count:
+            best_group_count = len(matched_names)
+            full_system_groups_found = matched_names
+            full_system_snippet = role_text[:200]
+
+        if len(matched_names) >= 4:
+            # Check strict full-bonus criteria:
+            # Must have production + eval + vector + (strict ranking OR recruiter workflow)
+            strict_full = (
+                has_prod and has_eval and has_vector
+                and (has_strict_ranking or has_strict_recruiter)
+            )
+            if strict_full:
+                full_system_bonus_applied = True
+                break
+            else:
+                # 4+ groups but missing strict ranking/recruiter — partial bonus
+                full_system_partial_applied = True
+
+    # Partial bonus only if no full bonus
+    if full_system_bonus_applied:
+        full_system_partial_applied = False
+
+    cand["runtime_same_project_full_system_bonus_applied"] = full_system_bonus_applied
+    cand["runtime_same_project_partial_system_bonus_applied"] = full_system_partial_applied
+    cand["runtime_same_project_bonus_type"] = (
+        "full" if full_system_bonus_applied else
+        "partial" if full_system_partial_applied else
+        "none"
+    )
+    cand["runtime_same_project_full_system_evidence_groups"] = ";".join(full_system_groups_found)
+    cand["runtime_same_project_full_system_evidence_snippet"] = full_system_snippet
+
+    # -----------------------------------------------------------------------
+    # Part 5: Recruiter/Candidate workflow bonus from career-history only
+    # -----------------------------------------------------------------------
+    recruiter_workflow_hit = False
+    recruiter_workflow_snippet = ""
+    for role in roles:
+        role_text = _role_text(role)
+        m = RECRUITER_WORKFLOW_RE.search(role_text)
+        if m:
+            recruiter_workflow_hit = True
+            start = max(0, m.start() - 60)
+            recruiter_workflow_snippet = role_text[start:m.end() + 100].strip()[:200]
+            break
+    cand["runtime_recruiter_workflow_bonus_applied"] = recruiter_workflow_hit
+    cand["runtime_recruiter_workflow_evidence_snippet"] = recruiter_workflow_snippet
+
+    # -----------------------------------------------------------------------
+    # Part 6 (Fix 4): Adjacent/internal-only evidence detection
+    # Expanded PRODUCT_RETRIEVAL_RE now catches e-commerce search, LTR, offline-online etc.
+    # -----------------------------------------------------------------------
+    has_internal_only_evidence = bool(INTERNAL_ONLY_RE.search(career_text))
+    has_product_retrieval_evidence = bool(PRODUCT_RETRIEVAL_RE.search(career_text))
+    adjacent_internal_only = (
+        has_internal_only_evidence
+        and not has_product_retrieval_evidence
+        and not full_system_bonus_applied
+        and not full_system_partial_applied  # Fix 4: also exempt partial bonus candidates
+    )
+    cand["runtime_adjacent_internal_only_flag"] = adjacent_internal_only
+
+    # Part 3: Bonus evidence levels for retrieval/vector/LTR/eval/product
+    # Distinguish career-history evidence from skills-only evidence
+    # Level 2 = full (production career-history), 1 = medium (internal/adjacent), 0 = low/none
+    cand["runtime_retrieval_evidence_level"] = (
+        2 if (career_ship and (career_retrieval or career_ranking)) else
+        1 if career_retrieval else
+        0
+    )
+    cand["runtime_vector_evidence_level"] = (
+        2 if career_production_vector else
+        1 if (career_vector and not career_ship) else
+        0 if not career_vector else 0
+    )
+    cand["runtime_ltr_evidence_level"] = (
+        2 if (bool(FSYS_RANKING_RE.search(career_text)) and career_ship) else
+        1 if bool(FSYS_RANKING_RE.search(career_text)) else
+        0
+    )
+    cand["runtime_eval_evidence_level"] = (
+        2 if (career_eval and career_ship) else
+        1 if career_eval_adjacent else
+        0
+    )
+    cand["runtime_product_evidence_level"] = (
+        2 if (career_ship and bool(PRODUCT_RETRIEVAL_RE.search(career_text))) else
+        1 if career_ship else
+        0
+    )
+    # Fix 3: Split-career core coverage bonus
+    # Career-level coverage of product ranking/LTR/eval in one role + vector/search/retrieval in another
+    # without needing all signals in the same role.
+    # Eligibility: career has ship + (ranking or eval) + (retrieval or vector)
+    # and has evidence of product-level (not purely internal) work
+    split_career_bonus_applied = False
+    if (
+        not full_system_bonus_applied  # full bonus is already better
+        and career_ship
+        and (career_ranking or career_eval)
+        and (career_retrieval or career_vector)
+        and has_product_retrieval_evidence
+        and len(roles) >= 2  # must span multiple roles
+    ):
+        # Check that the signals come from at least 2 different roles
+        role_ranking_eval = []
+        role_vector_retrieval = []
+        for i, role in enumerate(roles):
+            rt = _role_text(role)
+            if bool(FSYS_RANKING_RE.search(rt)) or bool(FSYS_EVAL_RE.search(rt)):
+                role_ranking_eval.append(i)
+            if bool(FSYS_RETRIEVAL_RE.search(rt)) or bool(FSYS_VECTOR_RE.search(rt)):
+                role_vector_retrieval.append(i)
+        # Split: at least one role has ranking/eval AND a different role has retrieval/vector
+        if role_ranking_eval and role_vector_retrieval:
+            overlap = set(role_ranking_eval) & set(role_vector_retrieval)
+            if len(overlap) < len(role_ranking_eval) or len(overlap) < len(role_vector_retrieval):
+                split_career_bonus_applied = True
+    cand["runtime_split_career_core_coverage_bonus_applied"] = split_career_bonus_applied
+
     return cand

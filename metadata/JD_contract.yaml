@@ -82,7 +82,7 @@ extraction_rules:
       - "cohere embeddings"
       - "jina embeddings"
       - "openai embeddings"
-      - "voyage"
+      - "voyage embeddings"
       - "embedding"
       - "embeddings"
       - "embedding-based search"
@@ -116,7 +116,10 @@ extraction_rules:
       - "ranker"
       - "embedding ranker"
       - "learning to rank"
-      - "ltr"
+      - "learning-to-rank"
+      - "ltr model"
+      - "ltr ranking"
+      - "ltr system"
       - "xgboost rank"
       - "xgboost ranking"
       - "lambdamart"
@@ -206,6 +209,46 @@ extraction_rules:
           - "extracted_features.core_search_and_retrieval > 0"
           - "extracted_features.semantic_recsys_and_ranking > 0"
         note: "Generic experimentation/evaluation terms only count when anchored to search, ranking, retrieval, or recommendation work."
+
+  - id: "tradeoff_judgment"
+    feature_bucket: "product_builder"
+    description: "Evidence that the candidate can reason about ranking/retrieval trade-offs from systems they built, not just list tools."
+    target_fields:
+      - "career_history[].description"
+      - "profile.summary"
+    patterns:
+      - "dense vs sparse"
+      - "sparse vs dense"
+      - "hybrid vs dense"
+      - "hybrid vs sparse"
+      - "latency vs quality"
+      - "quality vs latency"
+      - "latency quality tradeoff"
+      - "latency-quality tradeoff"
+      - "offline vs online"
+      - "online vs offline"
+      - "offline-online tradeoff"
+      - "offline to online"
+      - "offline-to-online"
+      - "precision vs recall"
+      - "recall vs precision"
+      - "precision recall tradeoff"
+      - "precision-recall tradeoff"
+      - "fine-tune vs prompt"
+      - "fine tune vs prompt"
+      - "prompt vs fine-tune"
+      - "prompt vs fine tune"
+      - "reranker latency"
+      - "ranking latency"
+      - "retrieval latency"
+      - "quality regression tradeoff"
+      - "relevance latency"
+    scoring_guards:
+      - require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+        note: "Trade-off language is valuable only when tied to retrieval, search, ranking, recommendation, or matching systems. Do not reward generic product trade-off wording by itself."
+
 
   - id: "metric_ownership"
     feature_bucket: "product_builder"
@@ -401,6 +444,39 @@ extraction_rules:
       - "gig marketplace"
       - "staffing"
       - "talent platform"
+
+  - id: "recruiter_product_workflow_ownership"
+    feature_bucket: "nice_to_have"
+    description: "Mild positive signal for product-minded ownership of recruiter/candidate workflows, especially when connected to search, matching, or relevance quality."
+    target_fields:
+      - "career_history[].description"
+      - "profile.summary"
+    patterns:
+      - "recruiter workflow"
+      - "recruiter-facing search"
+      - "recruiter facing search"
+      - "recruiter feedback loop"
+      - "recruiter engagement"
+      - "recruiter response rate"
+      - "candidate discovery"
+      - "candidate-job matching"
+      - "candidate jd matching"
+      - "job-candidate matching"
+      - "job candidate matching"
+      - "hiring workflow"
+      - "talent intelligence"
+      - "talent marketplace quality"
+      - "marketplace relevance"
+      - "matching quality"
+      - "search quality for recruiters"
+      - "relevance tuning"
+    scoring_guards:
+      - require_any_feature:
+          - "extracted_features.core_search_and_retrieval > 0"
+          - "extracted_features.semantic_recsys_and_ranking > 0"
+          - "extracted_features.inferred_production_ml == 1"
+        note: "Recruiter/product workflow language is a mild tie-breaker. It should not lift generic HR, recruiting, or product-management profiles without relevant technical evidence."
+
 
   - id: "llm_fine_tuning"
     feature_bucket: "nice_to_have"
@@ -938,12 +1014,14 @@ multipliers:
 
   - id: "pure_research_penalty"
     # CALIBRATED: Raised from ×0.70 to ×0.20.
-    # The JD uses the strongest disqualifier language for this case:
+    # The JD uses the strongest disqualifier language for pure-research-only profiles:
     # "We will not move forward. We are explicit about this. We've tried it twice."
     # ×0.70 left pure-research candidates at 70% score — still reachable in top 100.
-    # ×0.20 makes them effectively unreachable unless all other signals are exceptional.
-    # Guard (core_search_and_retrieval == 0) prevents penalising research scientists
-    # who have shipped real retrieval systems — they pass through.
+    # ×0.20 makes them effectively unreachable when there is no production evidence.
+    # IMPORTANT: Do not penalize research-titled candidates merely for having research titles.
+    # Penalize only when they lack production ML/search evidence, operational ownership, and
+    # product metric ownership. This prevents false negatives for research engineers who later
+    # shipped real retrieval/ranking systems.
     logic_operator: "AND"
     conditions:
       - field: "profile.current_title"
@@ -957,14 +1035,13 @@ multipliers:
           - "ml researcher"
           - "research engineer"
           - "scientist"
+      - field: "extracted_features.inferred_production_ml"
+        operator: "=="
+        value: 0
       - field: "extracted_features.operational_pain_and_scale"
         operator: "=="
         value: 0
       - field: "extracted_features.metric_ownership"
-        operator: "=="
-        value: 0
-      # Guard: if they have production retrieval experience, let them through.
-      - field: "extracted_features.core_search_and_retrieval"
         operator: "=="
         value: 0
     multiplier_value: 0.20
