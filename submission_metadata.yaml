@@ -23,7 +23,7 @@ team_members:
 # ============================================================================
 github_repo: "https://github.com/sathvik1610/evidence-rank"
 
-sandbox_link: "https://huggingface.co/spaces/sathvik1610/evidence-rank"
+sandbox_link: "https://colab.research.google.com/drive/1VOb_D3VliBd3zvcNntn865UaTFod9xfP?usp=sharing"
 
 reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv"
 
@@ -35,24 +35,24 @@ compute:
   cpu_cores: 8
   ram_gb: 16
   python_version: "3.11/3.12 supported; Python 3.13 not recommended"
-  os: "Windows"
+  os: "Windows 11"
   uses_gpu_for_inference: false
   has_network_during_ranking: false
   pre_computation_required: true
-  pre_computation_time_minutes: 60
+  pre_computation_time_minutes: 180
 
 # ============================================================================
 # AI tools declaration
 # ============================================================================
 ai_tools_used:
-  - "Gemini"
+  - "ChatGPT"
   - "Claude"
   - "Antigravity IDE"
   - "Codex"
 
 ai_usage_summary: |
-  Used Antigravity IDE, Claude, and Gemini for architecture discussions, planning phases,
-  code review, and running deep-dive manual audits on candidate rankings. 
+  Used Antigravity IDE, Claude, and ChatGPT for architecture discussions/corrections, planning phases,
+  code review, and running deep-dive manual audits on code quality. 
   Used Codex to help tune behavioral modifier weights and penalty combinations based on manual evaluation.
   All core engineering logic, phase design, and implementation decisions were made by the team.
   No candidate data was fed to any external LLM APIs; the reasoning generation is strictly factual and rule-based.

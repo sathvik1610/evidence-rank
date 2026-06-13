@@ -103,23 +103,23 @@ pip install -r requirements-offline.txt
 
 These are local verification metrics for the current generated `team_BuriBuri.csv`.
 
-| Metric | Current value |
-|---|---:|
-| Output rows | 100 |
-| Required columns | `candidate_id,rank,score,reasoning` |
-| Runtime for `rank.py` | about 5.5 seconds locally |
-| Ranking constraint | CPU only, no network, no GPU |
-| Submission validator | Pass |
+| Metric                     | Current value                                                                                  |
+| ----------------------------| -----------------------------------------------------------------------------------------------:|
+| Output rows                | 100                                                                                            |
+| Required columns           | `candidate_id,rank,score,reasoning`                                                            |
+| Runtime for `rank.py`      | about 5.5 seconds locally                                                                      |
+| Ranking constraint         | CPU only, no network, no GPU                                                                   |
+| Submission validator       | Pass                                                                                           |
 | Reasoning factuality audit | Deterministic evidence-grounded reasoning; final rows manually spot-checked after regeneration |
-| Full test suite | See local `pytest` run; `rank.py` and edited modules compile |
-| Top score | 96.178 |
-| Rank-100 score | 46.455 |
-| Mean score | 59.149 |
-| Median score | 54.299 |
-| Rank 1 | `CAND_0046525` |
-| Rank 10 | `CAND_0088025` |
-| Rank 50 | `CAND_0026532` |
-| Rank 100 | `CAND_0078492` |
+| Full test suite            | See local `pytest` run; `rank.py` and edited modules compile                                   |
+| Top score                  | 96.178                                                                                         |
+| Rank-100 score             | 46.455                                                                                         |
+| Mean score                 | 59.149                                                                                         |
+| Median score               | 54.299                                                                                         |
+| Rank 1                     | `CAND_0046525`                                                                                 |
+| Rank 10                    | `CAND_0088025`                                                                                 |
+| Rank 50                    | `CAND_0026532`                                                                                 |
+| Rank 100                   | `CAND_0078492`                                                                                 |
 
 ## Preprocessing Reliability
 
@@ -233,6 +233,11 @@ Purpose:
 This stage is CPU-only, uses no network calls, and does not load torch, FAISS, FlagEmbedding, or sentence-transformer models.
 
 For the deeper system walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Key Files Explained
+
+- **`metadata/JD_contract.yaml`**: The source of truth for all hard logic. Instead of parsing the unstructured `job_description.txt` at runtime, we broke the JD down into strict data structures (must-have skills, preferred cities, minimum notice periods). The Regex pipeline and behavioral gates pull directly from this file to ensure zero hallucination.
+- **`ce_query_profile.txt`**: The "perfect candidate" synthetic text. Because Cross-Encoders compare two pieces of text for semantic similarity, we couldn't just feed it a bulleted JD. We wrote an ideal, synthesized resume summary describing a candidate who perfectly fits the Redrob JD. The AI Cross-Encoder scores every candidate by measuring how semantically similar their profile is to this text.
 
 ## Main Methods Used
 
