@@ -17,6 +17,7 @@ venv/
 env/
 ENV/
 
+submission_new.csv
 # Jupyter
 .ipynb_checkpoints/
 
