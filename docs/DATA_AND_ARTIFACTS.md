@@ -78,11 +78,13 @@ pip install -r requirements-offline.txt
 | `artifacts/candidate_flags.parquet` | `preprocess.py` | `rank.py` through features | Honeypot, ghost, contradiction, trust flags |
 | `artifacts/retrieval_scores.parquet` | `preprocess.py` | `rank.py` | RRF retrieval scores |
 | `artifacts/candidate_features.parquet` | `preprocess.py` | `rank.py` | JD features, snippets, behavior/profile facts |
-| `artifacts/cross_encoder_scores.parquet` | `preprocess.py` | `rank.py` | Offline BGE reranker scores |
+| `artifacts/cross_encoder_scores.parquet` | `preprocess.py` / `merge_ce.py` | `rank.py` | Offline BGE reranker scores for the full retrieval pool |
 | `artifacts/run_metadata.json` | `preprocess.py` | `rank.py` | Candidate count and reference date |
 | `artifacts/ranking_debug.csv` | `rank.py` | humans/debug | Debug trace for ranked gate-passing candidates |
-| `artifacts/hard_disqualified_debug.csv` | `rank.py` | humans/debug | Candidates removed before final ranking by JD hard gates |
+| `artifacts/hard_disqualified_debug.csv` | `rank.py` | humans/debug | Candidates assigned near-zero hard-gate scores with reasons |
 | `artifacts/rank_score_gaps.csv` | `rank.py` | humans/debug | Adjacent rank score gaps for confidence review |
+| `artifacts/score_gap_diagnostics.csv` | `rank.py` | humans/debug | Adjacent-rank true-score gaps with likely causes |
+| `artifacts/large_gap_warnings.csv` | `rank.py` | humans/debug | Large Top-40 true-score gaps for manual audit |
 | `artifacts/yoe_distribution.csv` | `rank.py` | humans/debug | YoE diagnostics for Top 10/25/100 |
 
 ## Current Artifact Notes
@@ -105,11 +107,13 @@ Current important artifact sizes:
 | `artifacts/candidate_sparse_matrix.npz` | 61.03 MB |
 | `artifacts/candidate_ids.json` | 1.53 MB |
 | `artifacts/candidate_flags.parquet` | 0.84 MB |
-| `artifacts/candidate_features.parquet` | 0.53 MB |
+| `artifacts/candidate_features.parquet` | 0.63 MB |
 | `artifacts/retrieval_scores.parquet` | 0.20 MB |
-| `artifacts/cross_encoder_scores.parquet` | 0.11 MB |
+| `artifacts/cross_encoder_scores.parquet` | 0.06 MB |
 
-After the strict hard-gate update, regenerated ranking artifacts should also include `artifacts/hard_disqualified_debug.csv`. The official `team_BuriBuri.csv` should contain only candidates that pass the JD hard gates: no missing true must-have bucket without raw-evidence override and no explicit JD disqualifier flag. Notice and location risks remain in `ranking_debug.csv` as strong penalties/caveats, not hard exclusions.
+The current retrieval, feature, and CE artifacts all cover 12,567 candidates. The CE scores were regenerated in three non-overlapping 4,189-row parts and merged into `artifacts/cross_encoder_scores.parquet`; rank-time normalization is global over the merged CE file, not per partition.
+
+After the strict hard-gate update, regenerated ranking artifacts also include `artifacts/hard_disqualified_debug.csv`. The final ranking keeps hard-disqualified candidates in the scored pool with near-zero hard-gate scores rather than manually deleting them; the current official Top 100 contains zero hard-disqualified candidates. Notice and location risks remain in `ranking_debug.csv` as strong penalties/caveats, not hard exclusions.
 
 ## Data Governance Notes
 

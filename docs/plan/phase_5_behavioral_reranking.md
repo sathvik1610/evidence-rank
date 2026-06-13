@@ -106,7 +106,7 @@ The exemption list is read from `metadata.JD_contract.yaml`.
 
 These boosts are additive and capped so they cannot replace technical fit.
 
-The cap is intentionally low (`social_proof_max = 5.0`) because social proof is a tie-breaker. It should help distinguish two technically similar candidates, not move a weaker technical profile into the top 10.
+The cap is intentionally low (`social_proof_max = 4.0`) because social proof is a tie-breaker. It should help distinguish two technically similar candidates, not move a weaker technical profile into the top 10.
 
 ### 9.8 Final Score
 
@@ -115,9 +115,15 @@ The cap is intentionally low (`social_proof_max = 5.0`) because social proof is 
 ```text
 final = final_phase4_score * combined_multiplier
       + ninety_day_bonus
+      + reachable_elite_plan_bonus
       + social_proof_boost
+      + full_plan_bonus
+      + same_project_full_or_partial_system_bonus
+      + recruiter_workflow_bonus
+      + passive_responsive_exact_fit_bonus
+      + split_career_core_coverage_bonus
 ```
 
 Honeypot or suspicious profiles short-circuit to the honeypot multiplier. Candidates with extreme penalty stacks can be forced to `0.0` through `behavioral.penalty_floor_zero`.
 
-Ranks are assigned deterministically by descending score, then ascending `candidate_id`.
+Strict JD disqualifiers and missing-must-have candidates receive near-zero hard-gate scores and fall naturally rather than being removed manually before ranking. Ranks are assigned deterministically by descending internal `true_unclamped_final_score`, then ascending `candidate_id`. The submitted CSV score is a fixed-scale monotonic display calibration derived from that internal score.

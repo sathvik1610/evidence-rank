@@ -13,9 +13,9 @@ This file is the concise current tuning reference for the checked-in pipeline. T
 | Cross-encoder precompute pool | 15,000 | `constants.CE_PRECOMPUTE_TOPK` |
 | Cross-encoder merge | 68% handcrafted / 32% CE | `weights.yaml -> scoring.handcrafted_weight`, `scoring.cross_encoder_weight` |
 
-## JD Hard Gates
+## JD Hard-Gate Scoring
 
-Before final behavioral scoring and ranking, `rank.py` removes candidates with a hard JD exclusion reason and writes them to `artifacts/hard_disqualified_debug.csv`.
+Before final ranking, `rank.py` marks candidates with a hard JD exclusion reason and writes them to `artifacts/hard_disqualified_debug.csv`. The current implementation keeps them in the scored pool with near-zero hard-gate scores so they fall naturally rather than being manually removed before rank assignment.
 
 | Gate | Rule | Source |
 |---|---|---|
@@ -24,7 +24,7 @@ Before final behavioral scoring and ranking, `rank.py` removes candidates with a
 | Notice risk | `notice_period_days >= 120`; strong demotion, not hard gate | `weights.yaml -> behavioral.long_notice_exclusion_days` |
 | Location risk | Known India location outside preferred/welcome cities with no relocation, or non-India with no relocation/work-practicality signal; strong demotion, not hard gate | `src.behavioral.has_location_risk` |
 
-Notice/location risk weights remain documented for historical compatibility, but `compute_final_score` no longer short-circuits logistics to near-zero. Official Top 100 ranking is built from candidates that pass capability/trust gates, then logistics are applied as ordinary penalties and caveats.
+Notice/location risk weights remain documented for historical compatibility, but `compute_final_score` no longer short-circuits logistics to near-zero. Official Top 100 ranking is produced by scoring all candidates in the runtime pool; hard-gated profiles fall out through near-zero scores, while logistics are applied as ordinary penalties and caveats.
 
 ## Core Score
 
@@ -69,10 +69,19 @@ For gate-passing candidates, `src/behavioral.py` computes:
 final_score =
   final_phase4_score * combined_multiplier
 + ninety_day_alignment * 5.0
++ reachable elite / full-plan / same-project / recruiter-workflow bonuses
 + social_proof_boost
 ```
 
-The logistical group is floor-capped at `0.75`; the broader combined multiplier is floor-capped at `0.25` unless a floor-exempt JD disqualifier is present. These floors do not rescue hard-gated candidates because hard gates are applied before final ranking.
+The logistical group is floor-capped at `0.60`; elite exact-fit candidates can receive a higher logistics floor of `0.90` when CE and response signals agree. The broader combined multiplier is floor-capped at `0.25` unless a floor-exempt JD disqualifier is present. These floors do not rescue hard-gated candidates because hard gates assign near-zero scores.
+
+The submitted `score` column is not the raw internal score. It is a fixed-scale monotonic display value:
+
+```text
+submission_score = clamp(12 + 0.79 * true_unclamped_final_score, 1, 96)
+```
+
+Ranks use the internal `true_unclamped_final_score`, not the displayed score.
 
 Key penalty and modifier families:
 
@@ -117,4 +126,4 @@ The current runtime uses 16 of 23 Redrob signals directly or through extracted f
 
 ## Current Documentation Caveats
 
-Historical backup and duplicate audit/reference notes have been pruned. Use `README.md`, this file, `weights.yaml`, `constants.py`, the current phase files, and `docs/auditfiles/team_buriburi_deep_audit.md` as the current reference set.
+Historical backup and duplicate audit/reference notes have been pruned. Use `README.md`, this file, `weights.yaml`, `constants.py`, the current phase files, and the generated diagnostics in `artifacts/` as the current reference set.

@@ -133,7 +133,7 @@ To prevent code modification during final validation and parameter tuning, the i
 | Dense embedding | `BAAI/bge-m3` | 570 MB | Dense + sparse in one model. CPU ~2ms/doc. Offline only. |
 | BM25 | `rank_bm25` | — | Pure Python. Built at precompute time, pickled to disk. Offline only. |
 | Vector index | `faiss-cpu` `IndexFlatIP` | ~300 MB | Exact search on 100K. Built offline; not loaded at rank time. |
-| Cross-encoder | `BAAI/bge-reranker-v2-m3` | 130 MB | Applied offline to the configured retrieval pool, currently 15,000 candidates. Scores saved to parquet. Offline only. |
+| Cross-encoder | `BAAI/bge-reranker-v2-m3` | 130 MB | Applied offline to the retrieval pool. Current merged CE artifact covers all 12,567 retrieval-pool candidates. Scores saved to parquet. Offline only. |
 | Feature extraction | `regex` + phrase dictionaries | — | Pure Python pattern matching. No NLP library dependency. Both offline and rank time. |
 | Reason generation | Pure Python | — | String templates + evidence dict loaded from parquet. Rank time only. |
 
@@ -187,14 +187,14 @@ preprocess.py  (run once offline, no time limit)
     │                                 → artifacts/candidate_ids.json
     │                                 → artifacts/candidate_flags.parquet
     │                                 → artifacts/run_metadata.json  (reference_date = max last_active_date)
-    ├── Phase 1d: 6-way RRF retrieval (FAISS + sparse + BM25 + exact recall) → artifacts/retrieval_scores.parquet  [top 15,000]
+    ├── Phase 1d: 6-way RRF retrieval (FAISS + sparse + BM25 + exact recall) → artifacts/retrieval_scores.parquet  [configured up to 15,000; current artifact 12,567]
     ├── Phase 1c: Feature extraction (Bucket A/B/C on widened pool) → artifacts/candidate_features.parquet
     │            Preliminary core score computed here to rank candidates for CE selection
-    └── Phase 1e: Cross-encoder configured pool (currently 15,000) → artifacts/cross_encoder_scores.parquet
+    └── Phase 1e: Cross-encoder retrieval pool (current merged artifact 12,567) → artifacts/cross_encoder_scores.parquet
 
 rank.py  (evaluation machine, ≤ 5 minutes wall clock)
     │
-    ├── Load artifacts/retrieval_scores.parquet      → top 15,000 candidates (sliced to runtime_top_k)
+    ├── Load artifacts/retrieval_scores.parquet      → current 12,567 candidates (sliced to runtime_top_k)
     ├── Load artifacts/candidate_features.parquet    → Bucket A/B/C ready
     ├── Load artifacts/cross_encoder_scores.parquet  → CE scores ready for configured pool
     ├── Load artifacts/run_metadata.json             → reference_date

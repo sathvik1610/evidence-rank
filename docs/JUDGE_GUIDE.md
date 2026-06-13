@@ -64,18 +64,18 @@ python -m pytest tests -q
 
 - `team_BuriBuri.csv` with exactly 100 rows.
 - Required columns: `candidate_id,rank,score,reasoning`.
-- Runtime around 6-7 seconds locally with current artifacts.
+- Runtime around 6-10 seconds locally with current artifacts.
 - CPU-only ranking, no network calls, no GPU, no hosted LLM.
 
 ## Integrity Declaration
 
-The submitted CSV is generated from the code path in `rank.py`. Ranks and scores come from the implemented retrieval, scoring, cross-encoder merge, behavioral modifiers, trust checks, and `weights.yaml` configuration. The reasoning column comes from `src/explainer.py`, using extracted profile facts and evidence snippets.
+The submitted CSV is generated from the code path in `rank.py`. Ranks come from the internal `true_unclamped_final_score`; submitted scores are fixed-scale monotonic display scores derived from that internal score. Ranking uses implemented retrieval, scoring, cross-encoder merge, behavioral modifiers, trust checks, and `weights.yaml` configuration. The reasoning column comes from `src/explainer.py`, using extracted profile facts and evidence snippets.
 
 No candidate was manually inserted, removed, reordered, rescored, or manually given a custom explanation after generation.
 
 ## Architecture In One Paragraph
 
-The system precomputes candidate embeddings, sparse vectors, BM25 indexes, honeypot flags, retrieval scores, feature tables, and cross-encoder scores offline. At runtime, `rank.py` loads these artifacts, filters to the provided candidate IDs, slices the RRF retrieval pool, computes a JD-specific handcrafted score, blends the offline cross-encoder score, runs a lightweight full-profile calibration pass over the final slice, applies behavioral and trust modifiers, assigns deterministic ranks, and generates factual reasoning from extracted snippets.
+The system precomputes candidate embeddings, sparse vectors, BM25 indexes, honeypot flags, retrieval scores, feature tables, and cross-encoder scores offline. The current CE artifact covers all 12,567 retrieval-pool candidates and was merged from three non-overlapping CE parts, then normalized globally at rank time. At runtime, `rank.py` loads artifacts, filters to the provided candidate IDs, slices the RRF retrieval pool, computes a JD-specific handcrafted score, blends the offline cross-encoder score, runs a lightweight full-profile calibration pass over the final slice, applies behavioral and trust modifiers, assigns deterministic ranks, and generates factual reasoning from extracted snippets.
 
 ## Why This Is Not Keyword Stuffing
 
@@ -122,7 +122,8 @@ Latest local checks:
 
 ```text
 validate_submission.py team_BuriBuri.csv: valid
-reasoning factuality audit: 100 rows checked, 0 errors, 0 warnings
-pytest: 113 passed
-rank.py runtime: about 5.5 seconds locally
+reasoning: deterministic evidence-grounded rows spot-checked after regeneration
+py_compile: rank.py, src/behavioral.py, src/explainer.py pass
+rank.py runtime: about 6-10 seconds locally
+score range: 95.955 to 46.914
 ```

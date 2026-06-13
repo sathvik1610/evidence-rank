@@ -108,16 +108,16 @@ These are local verification metrics for the current generated `team_BuriBuri.cs
 | Runtime for `rank.py` | about 5.5 seconds locally |
 | Ranking constraint | CPU only, no network, no GPU |
 | Submission validator | Pass |
-| Reasoning factuality audit | 100 rows checked, 0 errors, 0 warnings |
-| Full test suite | 113 passed |
-| Top score | 99.972553 |
-| Rank-100 score | 46.487310 |
-| Mean score | 62.360000 |
-| Median score | 58.420000 |
+| Reasoning factuality audit | Deterministic evidence-grounded reasoning; final rows manually spot-checked after regeneration |
+| Full test suite | See local `pytest` run; `rank.py` and edited modules compile |
+| Top score | 95.955 |
+| Rank-100 score | 46.914 |
+| Mean score | 58.883 |
+| Median score | 55.760 |
 | Rank 1 | `CAND_0046525` |
-| Rank 10 | `CAND_0081846` |
-| Rank 50 | `CAND_0015967` |
-| Rank 100 | `CAND_0094056` |
+| Rank 10 | `CAND_0062247` |
+| Rank 50 | `CAND_0042029` |
+| Rank 100 | `CAND_0070398` |
 
 ## Preprocessing Reliability
 
@@ -134,10 +134,12 @@ Current artifact coverage checks:
 |---|---:|
 | Current retrieval pool | 12,567 candidates |
 | Feature rows | 12,567 candidates |
-| Cross-encoder rows | 12,325 candidates |
+| Cross-encoder rows | 12,567 candidates |
 | Exact recall top-10K missing from feature pool | 0 |
 | Final top-100 outside feature pool | 0 |
 | Final top-100 with impossible/suspicious/ghost flags | 0 |
+
+The current cross-encoder artifact was regenerated in three non-overlapping parts and merged into `artifacts/cross_encoder_scores.parquet`. Each part contains 4,189 candidates, the merged file contains all 12,567 retrieval-pool candidates, and rank-time normalization is applied globally after merge rather than per part.
 
 The main residual risk is semantic-only candidates ranked outside the older semantic base but not caught by exact recall. In practice that risk is reduced by the full-corpus exact lane, the breadth of JD patterns, and the fact that the audited top-100 candidates came from the semantic base. After the strict hard-gate update, final submission artifacts must be regenerated and revalidated before making a current top-100 claim.
 
@@ -243,10 +245,10 @@ For the deeper system walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.
 | Rule-based feature extraction | Phase 3 preprocessing | Converts raw JSON into JD-specific scoring features and factual snippets |
 | Honeypot/trust checks | Phase 1f preprocessing | Detects impossible timelines, ghosts, overclaims, and suspicious profiles |
 | Handcrafted scoring | Phase 4 runtime | Interpretable JD-specific score based on must-haves, career quality, and product ownership |
-| Cross-encoder merge | Phase 4 runtime from offline scores | Improves semantic ordering without runtime model inference |
+| Cross-encoder merge | Phase 4 runtime from offline scores | Improves semantic ordering without runtime model inference; current CE scores cover the full 12,567-candidate retrieval pool |
 | Runtime profile calibration | Phase 5 runtime over top slice | Reads full profile text for recent full-plan JD fit and current services context |
-| JD hard gates | Phase 5 runtime | Removes missing-must-have and true disqualifier profiles before final Top 100 ranking |
-| Behavioral modifiers | Phase 5 runtime | Applies reachability, notice, location, activity, and trust penalties late for candidates that pass the hard gates |
+| JD hard-gate scoring | Phase 5 runtime | Applies near-zero scores to missing-must-have and true disqualifier profiles so they fall naturally rather than being pre-filtered |
+| Behavioral modifiers | Phase 5 runtime | Applies reachability, notice, location, activity, and trust penalties late after technical scoring |
 | Deterministic reasoning | Phase 6 runtime | Generates factual 1-2 sentence explanations without LLM hallucination risk |
 
 ## Scoring Weights
@@ -279,7 +281,9 @@ Cross-encoder blend:
 
 Behavioral and penalty values are also in `weights.yaml`, including notice period, response rate, location, relocation, ghost/honeypot, social proof, contradiction, services-context, full-profile calibration, and low-density evidence penalties.
 
-The current JD uses hard gates before final ranking for capability and trust fit. A candidate is removed from Top-100 eligibility if any true must-have bucket is extracted as zero without a raw-evidence override, or if a JD-explicit disqualifier flag is true. Notice period and location/no-relocation are strong hiring-friction penalties, not hard exclusions. Hard exclusions are written to `artifacts/hard_disqualified_debug.csv` during `rank.py`.
+The current JD uses hard-gate scoring for capability and trust fit. A candidate with a true must-have gap or JD-explicit disqualifier receives a near-zero final score and falls out of the Top 100 naturally rather than being manually removed before ranking. Notice period and location/no-relocation are strong hiring-friction penalties, not hard exclusions. Hard-disqualification diagnostics are written to `artifacts/hard_disqualified_debug.csv` during `rank.py`; the current Top 100 contains zero hard-disqualified candidates.
+
+The submitted `score` column is a fixed monotonic display calibration of the internal final score: `visible_score = clamp(12 + 0.79 * true_unclamped_final_score, 1, 96)`. Ranking is assigned from the internal `true_unclamped_final_score`; the displayed score is kept on a human-readable 1-100 scale and is not normalized relative to rank 100.
 
 ## Artifact Guide
 
@@ -289,9 +293,9 @@ Important current artifacts:
 
 | Artifact                                 | Purpose                                     | Approx size |
 | ------------------------------------------| ---------------------------------------------| ------------:|
-| `artifacts/candidate_features.parquet`   | Feature table consumed by `rank.py`         | 0.53 MB     |
+| `artifacts/candidate_features.parquet`   | Feature table consumed by `rank.py`         | 0.63 MB     |
 | `artifacts/retrieval_scores.parquet`     | RRF retrieval scores                        | 0.20 MB     |
-| `artifacts/cross_encoder_scores.parquet` | Offline cross-encoder scores                | 0.11 MB     |
+| `artifacts/cross_encoder_scores.parquet` | Offline cross-encoder scores for full retrieval pool | 0.06 MB     |
 | `artifacts/candidate_flags.parquet`      | Honeypot, ghost, contradiction, trust flags | 0.84 MB     |
 | `artifacts/faiss_index.bin`              | Dense vector index                          | 390.63 MB   |
 | `artifacts/candidate_sparse_matrix.npz`  | Learned-sparse candidate matrix             | 61.03 MB    |
@@ -299,6 +303,8 @@ Important current artifacts:
 | `artifacts/candidate_texts.pkl`          | Serialized candidate text                   | 187.27 MB   |
 | `artifacts/candidate_ids.json`           | Candidate ID order for indexes              | 1.53 MB     |
 | `artifacts/hard_disqualified_debug.csv`  | JD hard-gate exclusions from final ranking  | generated by `rank.py` |
+| `artifacts/score_gap_diagnostics.csv`    | Adjacent-rank true-score gap causes         | generated by `rank.py` |
+| `artifacts/large_gap_warnings.csv`       | Top-40 large-gap warnings for audit         | generated by `rank.py` |
 
 `artifacts/run_metadata.json` currently records:
 
@@ -324,7 +330,7 @@ Most expensive work is already calculated. Use this table before changing code.
 | `metadata/JD_contract.yaml` changed for extraction patterns, feature terms, location policy, or exact recall | Run `preprocess.py --skip-embed`, then `rank.py` |
 | Candidate dataset changed | Run full `preprocess.py`, then `rank.py` |
 | Embedding model, dense/sparse JD query text, FAISS, BM25, sparse matrix, or index construction changed | Run full `preprocess.py`, then `rank.py` |
-| Cross-encoder scores need refresh for the current retrieval pool | Run `preprocess.py --only-cross-encoder`, then `rank.py` |
+| Cross-encoder scores need refresh for the current retrieval pool | Run `preprocess.py --only-cross-encoder`, or split/merge CE parts with `split_retrieval.py` and `merge_ce.py`, then run `rank.py` |
 
 Lightweight preprocessing:
 
@@ -351,6 +357,18 @@ python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 python validate_submission.py team_BuriBuri.csv
 ```
+
+Parallel cross-encoder refresh for three GPU sessions:
+
+```bash
+python split_retrieval.py --parts 3
+# Run CE scoring for each retrieval_scores_partN.parquet to produce cross_encoder_scores_partN.parquet.
+python merge_ce.py artifacts/cross_encoder_scores_part1.parquet artifacts/cross_encoder_scores_part2.parquet artifacts/cross_encoder_scores_part3.parquet --output artifacts/cross_encoder_scores.parquet
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
+
+Do not normalize CE scores per partition. The current merge concatenates raw CE logits and `src/reranker.py` normalizes the merged file globally at rank time.
 
 ## Validation Checklist
 
@@ -422,8 +440,7 @@ evidence-rank/
 |   |-- DATA_AND_ARTIFACTS.md       # Artifact inventory and data governance
 |   |-- JUDGE_GUIDE.md              # Reviewer quick path
 |   |-- plan/                       # Phase-by-phase implementation notes
-|   |-- reference/                  # Current concise variable reference
-|   `-- auditfiles/                 # Latest deep audit only
+|   `-- reference/                  # Current concise variable reference
 `-- Resources/                      # Original hackathon resources and specs
 ```
 
@@ -486,7 +503,6 @@ Start with these:
 - [docs/DATASET_ANALYSIS.md](docs/DATASET_ANALYSIS.md) - released dataset summary, trap assumptions, duplicate-description audit, and preprocessing reliability notes
 - [REPRODUCIBILITY.md](REPRODUCIBILITY.md) - exact reproduction commands and when artifacts must be rebuilt
 - [docs/DATA_AND_ARTIFACTS.md](docs/DATA_AND_ARTIFACTS.md) - what data/artifacts exist, what generated them, and what `rank.py` consumes
-- [docs/auditfiles/team_buriburi_deep_audit.md](docs/auditfiles/team_buriburi_deep_audit.md) - historical deep-audit notes from an earlier generated CSV
 
 Project governance and metadata:
 
@@ -509,6 +525,6 @@ Detailed implementation references:
 - [docs/plan/phase_6_reason_generation.md](docs/plan/phase_6_reason_generation.md) - factual reasoning generation
 - [docs/plan/phase_7_validation_and_references.md](docs/plan/phase_7_validation_and_references.md) - validation and references
 
-Historical duplicate audit/reference documents have been pruned. Current numeric tuning authority remains `weights.yaml`, `constants.py`, and the implementation; deep-audit notes should be refreshed whenever the generated top 100 changes materially.
+Historical duplicate audit/reference documents have been pruned. Current numeric tuning authority remains `weights.yaml`, `constants.py`, and the implementation; regenerate diagnostics whenever the generated top 100 changes materially.
 
 Use this README to run and reproduce the project. Use `docs/ARCHITECTURE.md` to explain the system in interviews or manual review.

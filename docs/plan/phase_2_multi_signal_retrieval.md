@@ -6,7 +6,7 @@
 
 **At rank time (`rank.py`):** Loads `retrieval_scores.parquet` (using Polars for memory safety and speed), filters to top N by RRF score, then applies core scoring. **No FAISS, BM25, regex corpus scan, or model inference happens at rank time.**
 
-**Retrieval pool size tuning:** Precompute saves the top 15,000 candidates to `retrieval_scores.parquet` (`constants.RRF_PRECOMPUTE_TOPK`). At runtime, this branch filters to top N from `weights.yaml` (`retrieval.runtime_top_k`, currently 10,000). The code has a structural fallback in `constants.RUNTIME_RETRIEVAL_TOPK`, but `weights.yaml` is the active tuning source when present. The wider pool is intentional: validation showed strong candidates can be lost before feature extraction, and those losses are unrecoverable later.
+**Retrieval pool size tuning:** Precompute is configured to save up to 15,000 candidates to `retrieval_scores.parquet` (`constants.RRF_PRECOMPUTE_TOPK`). The current artifact contains 12,567 candidates after the semantic RRF and exact-recall union. At runtime, this branch filters to top N from `weights.yaml` (`retrieval.runtime_top_k`, currently 10,000). The code has a structural fallback in `constants.RUNTIME_RETRIEVAL_TOPK`, but `weights.yaml` is the active tuning source when present. The wider pool is intentional: validation showed strong candidates can be lost before feature extraction, and those losses are unrecoverable later.
 
 Target rank-time cost: under 5 seconds on CPU.
 
@@ -157,7 +157,7 @@ retrieved_ids = [r[0] for r in retrieved]
 
 **k-tuning note:** `k=60` is the industry default. If validation shows precision loss at top-10, try sweeping k ∈ [10, 100] against `metadata/validation_set.json`. Document the winning value in `weights.yaml`.
 
-The widened retrieval pool goes to Phase 3 for feature extraction. Missing cross-encoder scores are allowed at runtime; those candidates fall back to handcrafted `core_score`.
+The widened retrieval pool goes to Phase 3 for feature extraction. The current CE artifact covers the full 12,567-candidate retrieval pool. If a future experiment widens retrieval beyond CE coverage, missing cross-encoder scores are allowed at runtime and those candidates fall back to handcrafted `core_score`.
 
 **Recall verification (do this once during development):** After building the retrieval pool, compare against `metadata/validation_set.json`. A missing Tier 3 candidate at this stage is unrecoverable. Fix retriever thresholds before tuning post-processing.
 

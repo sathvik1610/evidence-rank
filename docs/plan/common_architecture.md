@@ -52,14 +52,14 @@ The system executes in two strictly separated environments:
 - **Phase 1f: Honeypot Audit Pass** — separate pure-JSON structural validation pass (no ML, no embeddings). Runs two-tier detection: `impossible_flag` (hard structural contradictions) and `honeypot_score` (0.0–1.0 soft weighted sum). Computes `suspicious_flag = honeypot_score > 0.70`. Saves all three to `candidate_flags.parquet`. **Must run after Phase 1 text encoding, before Phase 1d RRF scoring.**
 - Phase 1d: Compute 6-way high-recall RRF retrieval scores offline; save top-15000 to `retrieval_scores.parquet`
 - Phase 1c: Extract candidate features offline (Bucket A/B/C) on the widened retrieval pool; save to `candidate_features.parquet`
-- Phase 1e: Run cross-encoder on the configured retrieval pool (`constants.CE_PRECOMPUTE_TOPK`, currently 15,000) offline; save to `cross_encoder_scores.parquet`
+- Phase 1e: Run cross-encoder on the configured retrieval pool offline; save raw CE logits to `cross_encoder_scores.parquet`. Current artifacts cover all 12,567 retrieval-pool candidates and were merged from three non-overlapping 4,189-row CE parts.
 
 **Runtime Ranking Engine (`rank.py`, must complete in under 5 minutes on CPU, no network):**
 - Input guard: read `candidate_id` values from `--candidates` and filter precomputed features to that exact input file. If there is no overlap, exit and require a fresh preprocess run.
 - Phase 2: When `artifacts/retrieval_scores.parquet` exists, join retrieval scores and filter to the configured runtime pool from `weights.yaml` (`retrieval.runtime_top_k`, currently 10,000). Sample `--skip-embed` runs still score all sample candidates.
 - Phase 3: Load precomputed candidate features from parquet (< 5s)
 - Phase 4: Compute core score, merge precomputed cross-encoder scores, then slice the configured Phase 5 candidate pool by blended Phase 4 score (< 30s)
-- Phase 5: Behavioral re-ranking + penalization → top 100 (< 10s)
+- Phase 5: Behavioral re-ranking, hard-gate scoring, score-gap diagnostics, and penalization → top 100 (< 10s)
 - Phase 6: Reason generation → final CSV (< 30s)
 - Phase 7: Manual validation (pre-submission, not part of 5-min constraint)
 
@@ -131,13 +131,13 @@ Inputs:
 
 Process:
 
-1. Build JD representations
-2. Run retrieval (BM25 + Dense Retrieval)
-3. Apply RRF
-4. Score shortlisted candidates
-5. Apply behavioral adjustments
-6. Generate explanations
-7. Output `team_BuriBuri.csv` or the `--out` path passed to `rank.py`
+1. Load precomputed JD/candidate artifacts.
+2. Filter candidate features to the input candidate IDs.
+3. Join retrieval scores and apply the configured runtime RRF cutoff.
+4. Compute JD-specific core scores and merge globally normalized precomputed CE scores.
+5. Apply full-profile calibration, hard-gate scoring, behavioral adjustments, and score-gap diagnostics.
+6. Generate deterministic explanations.
+7. Output `team_BuriBuri.csv` or the `--out` path passed to `rank.py`.
 
 Constraints:
 
@@ -194,7 +194,8 @@ Stage B should function as a lightweight ranking system operating primarily on p
     ├── retrieval_scores_base.parquet # Phase 1d: Dense/sparse/BM25 base retrieval snapshot for repeatable recall experiments
     ├── retrieval_scores.parquet     # Phase 1d: Precomputed high-recall RRF scores (top 15000 candidates)
     ├── candidate_features.parquet   # Phase 1c: Precomputed Bucket A/B/C features for retrieved candidates
-    └── cross_encoder_scores.parquet # Phase 1e: Precomputed bge-reranker-v2-m3 scores for the configured CE pool
+    ├── cross_encoder_scores_part*.parquet # Optional parallel CE outputs before merge
+    └── cross_encoder_scores.parquet # Phase 1e: Merged raw bge-reranker-v2-m3 logits for the retrieval pool
 ```
 
 **What each key file does:**
@@ -219,9 +220,9 @@ Retrieval lives in `preprocess.py`. At preprocess time: 6-way RRF (3 dense FAISS
 
 `src/scorer.py` — Weighted formula from `weights.yaml`: must-have (55%), nice-to-have (5%), career quality (15%), product builder (25%). Pure pandas/numpy; no model calls.
 
-`src/reranker.py` — At preprocess time only: cross-encoder scoring using `bge-reranker-v2-m3` on the configured CE pool → saves `cross_encoder_scores.parquet`. At rank time: loads parquet, merges scores using `weights.yaml`.
+`src/reranker.py` — At rank time: loads merged precomputed CE logits, normalizes them globally to a 0-100 scale, and blends them with handcrafted `core_score` using `weights.yaml`. CE inference itself happens offline in preprocessing or parallel CE runs, not inside `rank.py`.
 
-`src/behavioral.py` — Multiplicative modifiers: availability, notice, YAML-derived location bands, social proof, seniority, writing signal, soft penalties, floor-exempt disqualifier handling, and 90-day bonus.
+`src/behavioral.py` — Multiplicative modifiers and additive fit bonuses: availability, notice, YAML-derived location bands, bounded social proof, seniority, writing signal, soft penalties, hard-gate scoring for true JD disqualifiers, exact-fit/recruiter-workflow bonuses, and 90-day alignment.
 
 `src/explainer.py` — Deterministic reason generation from profile facts and extracted evidence snippets. It does not call an LLM, guess facts, or invent skills/durations.
 

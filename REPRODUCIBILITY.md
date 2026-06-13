@@ -83,10 +83,12 @@ python validate_submission.py team_BuriBuri.csv
 Expected current behavior:
 
 - writes 100 rows
-- completes in about 6-7 seconds locally with current artifacts
+- completes in about 6-10 seconds locally with current artifacts
 - produces columns `candidate_id,rank,score,reasoning`
 - writes debug trace to `artifacts/ranking_debug.csv`
-- uses a 12,325-candidate precomputed feature pool produced from semantic RRF plus full-corpus exact recall rescue
+- uses a 12,567-candidate precomputed feature pool produced from semantic RRF plus full-corpus exact recall rescue
+- uses cross-encoder scores for all 12,567 retrieval-pool candidates
+- writes score-gap diagnostics to `artifacts/score_gap_diagnostics.csv` and `artifacts/large_gap_warnings.csv`
 
 ## Integrity Declaration
 
@@ -100,10 +102,10 @@ Do not manually edit `team_BuriBuri.csv` after generation. If the ranking or rea
 python -m pytest tests -q
 ```
 
-Current verification result:
+Run tests locally before final submission if test files are included in the packaging. The final ranking path itself is also checked with:
 
-```text
-94 passed
+```bash
+python -m py_compile rank.py src/behavioral.py src/explainer.py
 ```
 
 ## Rebuild Artifacts
@@ -125,7 +127,7 @@ python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 
 Do not expect a full preprocessing rerun to necessarily reproduce the exact same CSV if retrieval or cross-encoder artifacts change. The final ranker is deterministic for a fixed artifact set, but changing the upstream retrieval pool can admit new candidates and slightly move the top 100.
 
-For the current submission, full preprocessing is not required for correctness. The current feature pool already includes all exact-recall top-10K candidates, feature rows and cross-encoder rows for all 12,325 pooled candidates, and the final top 100 has no impossible/suspicious/ghost flags. A full rerun is mainly useful if you deliberately want to refresh the semantic retrieval base and then spend time comparing the regenerated CSV against the current one.
+For the current submission, full preprocessing is not required for correctness. The current feature pool already includes all exact-recall top-10K candidates, feature rows and cross-encoder rows for all 12,567 pooled candidates, and the final top 100 has no impossible/suspicious/ghost flags. A full rerun is mainly useful if you deliberately want to refresh the semantic retrieval base and then spend time comparing the regenerated CSV against the current one.
 
 Use cross-encoder-only refresh when the retrieval pool is current but reranker scores need regeneration:
 
@@ -135,10 +137,22 @@ python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 ```
 
+The current CE artifact can also be reproduced from three non-overlapping parallel CE outputs:
+
+```bash
+python split_retrieval.py --parts 3
+# Produce artifacts/cross_encoder_scores_part1.parquet through part3.parquet from the three retrieval parts.
+python merge_ce.py artifacts/cross_encoder_scores_part1.parquet artifacts/cross_encoder_scores_part2.parquet artifacts/cross_encoder_scores_part3.parquet --output artifacts/cross_encoder_scores.parquet
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+```
+
+The merge must concatenate raw CE logits and normalize only after the full file is joined at rank time. Do not normalize each part independently.
+
 ## Reproducibility Boundaries
 
 - `rank.py` does not rebuild missing embeddings or indexes.
 - `rank.py` does not load `torch`, FAISS, FlagEmbedding, or hosted APIs.
 - `team_BuriBuri.csv` should be regenerated, not manually edited.
+- Submitted scores are fixed-scale monotonic display scores derived from the internal final score, not rank-only labels and not normalized to the current rank-100 candidate.
 - If candidate IDs in the input file do not overlap with feature artifacts, rerun preprocessing for that candidate file.
 - If only scoring weights, behavioral modifiers, runtime calibration, or reasoning templates changed, run `rank.py` only.

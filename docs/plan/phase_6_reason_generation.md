@@ -66,13 +66,13 @@ For ranks above 25, present a concern when one exists. For ranks above 70, ackno
 
 Band-aware tone is deliberate:
 
-- ranks 1-10: excellent fit
+- ranks 1-10: excellent fit, unless a major CE/logistics/manual-review caveat requires "Strong JD fit" tone
 - ranks 11-25: strong fit
 - ranks 26-50: solid JD-aligned profile
 - ranks 51-75: relevant but partial fit
 - ranks 76-100: borderline or adjacent fit with clear limitations
 
-For top-ranked candidates with sustained `career_ir_density`, the support sentence may explicitly say the career pattern shows search/ranking/evaluation ownership. This is only emitted from extracted feature values; the explainer still does not infer or invent evidence.
+For exact recruiter/candidate retrieval candidates, the support sentence can explicitly mention recruiter/candidate matching, hybrid retrieval, ranking decisions, and evaluation when the corresponding runtime bonus flags are present. For top-ranked candidates with sustained `career_ir_density`, the support sentence may explicitly say the career pattern shows search/ranking/evaluation ownership. This is only emitted from extracted feature values and runtime calibration flags; the explainer still does not infer or invent evidence.
 
 ### 10.6 Debug Output
 
@@ -81,6 +81,8 @@ For top-ranked candidates with sustained `career_ir_density`, the support senten
 - `candidate_id`
 - `rank`
 - `score`
+- `final_score`
+- `true_unclamped_final_score`
 - `core_score`
 - `ce_score`
 - `reasoning`

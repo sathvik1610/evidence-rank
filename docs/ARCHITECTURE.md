@@ -184,7 +184,7 @@ Current reliability checks on the generated artifacts:
 |---|---:|
 | Retrieval pool after fusion | 12,567 |
 | Feature rows generated | 12,567 |
-| Cross-encoder rows available | 12,325 |
+| Cross-encoder rows available | 12,567 |
 | Exact recall top-10K missing from retrieval pool | 0 |
 | Final top-100 outside retrieval/features | 0 |
 | Final top-100 flagged impossible/suspicious/ghost | 0 |
@@ -226,7 +226,9 @@ Output:
 What happens:
 
 - Runs `BAAI/bge-reranker-v2-m3` offline on the widened retrieval pool.
-- Saves normalized scores for runtime merge.
+- Saves raw CE logits for runtime merge.
+- Current artifacts were produced in three non-overlapping parts, each with 4,189 candidates, then merged into a 12,567-row `cross_encoder_scores.parquet`.
+- `src/reranker.py` normalizes the merged CE scores globally at rank time, so partitions are not independently rescaled.
 
 Why:
 
@@ -262,7 +264,7 @@ flowchart TD
 5. It keeps the configured runtime retrieval pool from `weights.yaml`.
 6. `src/scorer.py` computes the core technical score.
 7. `src/reranker.py` merges precomputed cross-encoder scores.
-8. The pipeline keeps a configurable Phase 5 pool by blended Phase 4 score. The current value is `ranking.phase5_candidate_pool = 1000`, which leaves room to backfill the official Top 100 after strict JD hard gates remove ineligible profiles.
+8. The pipeline keeps a configurable Phase 5 pool by blended Phase 4 score. The current value is `ranking.phase5_candidate_pool = 1000`, which leaves room for behavioral and trust reranking before the official Top 100 cut.
 9. `src/runtime_calibration.py` cheaply reads full profile text for current/recent full-plan JD fit and current services context.
 10. `src/behavioral.py` applies final reachability and trust modifiers.
 11. Ranks are assigned by descending score, with deterministic tie handling.
@@ -349,11 +351,11 @@ After the offline preprocessing shrinks the 100,000 corpus to a 12,567-candidate
 1. **Stage 1 (Retrieval Cutoff):** applies the configured runtime RRF cutoff to slice 12,567 -> 10,000.
 2. **Stage 2 (Feature Scoring):** computes explicit JD feature scores and blends handcrafted scoring with precomputed cross-encoder scores for the 10,000.
 3. **Stage 3 (Phase 5 Pool Cutoff):** keeps the top 1,000 candidates by blended Phase 4 score for deep evaluation (10,000 -> 1,000).
-4. **Stage 4 (Calibration & Modification):** reads full profile text for the top 1,000, applies JD hard gates (removing strict disqualifiers), and applies behavioral, logistics, trust, notice-period, location, and social-proof modifiers.
+4. **Stage 4 (Calibration & Modification):** reads full profile text for the top 1,000, applies JD hard-gate scoring to strict disqualifiers, and applies behavioral, logistics, trust, notice-period, location, and social-proof modifiers.
 5. **Stage 5 (Final Cut):** assigns deterministic ranks to the remaining valid candidates and slices the absolute Top 100 (1,000 -> 100).
 6. **Stage 6 (Reasoning):** generates factual reasoning from profile facts and extracted snippets exclusively for the Top 100.
 
-This postprocessing is where the system becomes recruiter-aligned. A candidate with missing production retrieval/vector/evaluation/Python evidence or an explicit JD disqualifier is removed from Top-100 eligibility before final ranking. The Python gate is strict about evidence but not literal-string-only: explicit Python, Python libraries, Python-native ML tooling such as MLflow/Kubeflow, or FAISS in a hands-on ML/search engineering context can prove the requirement. Generic vector-database mentions alone do not. Candidates that pass those gates can still move down sharply if they look hard to reach, have a 120-day notice period, have weaker location/relocation logistics, show current services/consulting risk, or carry trust/overclaim concerns. Conversely, a profile with strong current evidence across retrieval, vector/hybrid search, ranking, evaluation, and shipping can be lifted when the raw feature extraction underestimates the complete profile.
+This postprocessing is where the system becomes recruiter-aligned. A candidate with missing production retrieval/vector/evaluation/Python evidence or an explicit JD disqualifier receives a near-zero score and falls naturally rather than being hand-removed. The Python gate is strict about evidence but not literal-string-only: explicit Python, Python libraries, Python-native ML tooling such as MLflow/Kubeflow, or FAISS in a hands-on ML/search engineering context can prove the requirement. Generic vector-database mentions alone do not. Candidates that pass those gates can still move down sharply if they look hard to reach, have a 120-day notice period, have weaker location/relocation logistics, show current services/consulting risk, or carry trust/overclaim concerns. Conversely, a profile with strong current evidence across retrieval, vector/hybrid search, ranking, evaluation, and shipping can be lifted when the raw feature extraction underestimates the complete profile.
 
 This is deliberate. The JD says the ideal output is not a list of the most AI-keyword-heavy profiles; it is a ranked shortlist of people who can plausibly be hired and succeed in the first 90 days.
 
@@ -400,6 +402,8 @@ Debug columns include:
 - `candidate_id`
 - `rank`
 - `score`
+- `final_score`
+- `true_unclamped_final_score`
 - `core_score`
 - `ce_score`
 - `top100_must_have_exclusion`
@@ -416,7 +420,16 @@ Hard-gated candidates are written separately to:
 artifacts/hard_disqualified_debug.csv
 ```
 
-This file records the exclusion reason and the relevant must-have/disqualifier/logistics flags. Official Top 100 ranking is built only from candidates that pass the hard gates.
+This file records the exclusion reason and the relevant must-have/disqualifier/logistics flags. The final ranker keeps those candidates in the scored pool with near-zero hard-gate scores rather than manually deleting them; the current Top 100 contains zero hard-disqualified candidates.
+
+Additional score-audit files:
+
+```text
+artifacts/score_gap_diagnostics.csv
+artifacts/large_gap_warnings.csv
+```
+
+These explain adjacent-rank true-score gaps and flag large Top-40 gaps for manual review without changing ranks.
 
 ## Current Runtime And Output Metrics
 
@@ -427,13 +440,15 @@ This file records the exclusion reason and the relevant must-have/disqualifier/l
 | Runtime retrieval cutoff | 10000 |
 | Phase 5 candidate pool | 1,000 |
 | Final output rows | 100 |
-| Runtime for latest `rank.py` run | about 5.0 seconds locally |
-| Full tests | 113 passed |
+| Runtime for latest `rank.py` run | about 6-10 seconds locally |
+| Compile check | `rank.py`, `src/behavioral.py`, and `src/explainer.py` pass `py_compile` |
 | Submission validator | Pass |
-| Reasoning factuality audit | 100 rows checked, 0 errors, 0 warnings |
-| Score range in final CSV | 99.97 to 46.49 |
-| Mean score | 62.36 |
-| Median score | 58.42 |
+| Reasoning factuality audit | Deterministic evidence-grounded rows manually spot-checked after regeneration |
+| Score range in final CSV | 95.955 to 46.914 |
+| Mean score | 58.883 |
+| Median score | 55.760 |
+
+The submitted `score` column is a fixed monotonic display calibration of the internal score: `score = clamp(12 + 0.79 * true_unclamped_final_score, 1, 96)`. Ranks are assigned by internal `true_unclamped_final_score`; the display score is not rank-only and is not relative-normalized against the current Top 100 boundary.
 
 ## Artifact Dependency Rules
 
