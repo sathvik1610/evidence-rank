@@ -17,6 +17,9 @@ Install dependencies:
 Windows PowerShell:
 
 ```powershell
+git lfs install
+git lfs pull
+
 py -3.11 -m venv .venv
 .\.venv\Scripts\activate
 python -m pip install --upgrade pip
@@ -26,6 +29,9 @@ pip install -r requirements.txt
 macOS/Linux:
 
 ```bash
+git lfs install
+git lfs pull
+
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -46,23 +52,26 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Inside WSL, do not use Windows commands such as `py -3.11` or `.\.venv\Scripts\activate`.
+Inside WSL, do not use Windows commands such as `py -3.11` or `.\venv\Scripts\activate`.
 
 Do not use Python 3.13. It can force packages such as pandas or FAISS-related dependencies to build from source or fail to resolve.
 
 ## Required Local Files
 
-If artifacts are stored with Git LFS, run this after cloning:
+Download the official candidate dataset and place it at the repository root:
 
-```bash
-git lfs install
-git lfs pull
+Windows PowerShell:
+
+```powershell
+pip install gdown
+gdown "https://drive.google.com/uc?id=1DEXK9WEfDAj9hN_IY6FSh_Fu3Il1m0Xw" -O candidates.jsonl
 ```
 
-The official candidate file must be present at the repository root:
+macOS/Linux/WSL:
 
-```text
-candidates.jsonl
+```bash
+pip install gdown
+gdown "https://drive.google.com/uc?id=1DEXK9WEfDAj9hN_IY6FSh_Fu3Il1m0Xw" -O candidates.jsonl
 ```
 
 The current repository expects precomputed artifacts in:
@@ -110,43 +119,92 @@ python -m py_compile rank.py src/behavioral.py src/explainer.py
 
 ## Rebuild Artifacts
 
-Use lightweight preprocessing when feature extraction, exact recall, honeypot, contradiction, or JD-contract extraction logic changed:
+### Ranking only (no preprocessing change)
+
+Use when only `weights.yaml`, scoring, behavioral, explainer, or reasoning template changed:
+
+```bash
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
+
+---
+
+### Lightweight preprocessing (`--skip-embed`)
+
+Use when `src/features.py`, `preprocess.py` feature/exact-recall/honeypot logic, or `metadata/JD_contract.yaml` changed — but embeddings and indexes are still current.
+
+No offline GPU dependencies needed for this path.
 
 ```bash
 python preprocess.py --candidates ./candidates.jsonl --skip-embed
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
 ```
 
-Use full preprocessing when the candidate dataset, embedding model, dense/sparse query text, or index construction changed:
+---
 
-```bash
-pip install -r requirements-offline.txt
-python preprocess.py --candidates ./candidates.jsonl
-python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
-```
+### Cross-encoder refresh only (`--only-cross-encoder`)
 
-Do not expect a full preprocessing rerun to necessarily reproduce the exact same CSV if retrieval or cross-encoder artifacts change. The final ranker is deterministic for a fixed artifact set, but changing the upstream retrieval pool can admit new candidates and slightly move the top 100.
-
-For the current submission, full preprocessing is not required for correctness. The current feature pool already includes all exact-recall top-10K candidates, feature rows and cross-encoder rows for all 12,567 pooled candidates, and the final top 100 has no impossible/suspicious/ghost flags. A full rerun is mainly useful if you deliberately want to refresh the semantic retrieval base and then spend time comparing the regenerated CSV against the current one.
-
-Use cross-encoder-only refresh when the retrieval pool is current but reranker scores need regeneration:
+Use when the retrieval pool is current but reranker scores need regeneration. Requires offline dependencies and a GPU session.
 
 ```bash
 pip install -r requirements-offline.txt
 python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
 ```
 
-The current CE artifact can also be reproduced from three non-overlapping parallel CE outputs:
+---
+
+### Full preprocessing
+
+Use when the candidate dataset, embedding model, dense/sparse JD query text, FAISS, BM25, sparse matrix, or index construction changed. Requires offline dependencies and a GPU session.
+
+Do not expect a full rerun to reproduce the exact same CSV — changing the upstream retrieval pool can admit new candidates and slightly move the top 100. Do not run this as a last-minute step unless there is time to compare and audit the regenerated CSV.
 
 ```bash
-python split_retrieval.py --parts 3
-# Produce artifacts/cross_encoder_scores_part1.parquet through part3.parquet from the three retrieval parts.
-python merge_ce.py artifacts/cross_encoder_scores_part1.parquet artifacts/cross_encoder_scores_part2.parquet artifacts/cross_encoder_scores_part3.parquet --output artifacts/cross_encoder_scores.parquet
+pip install -r requirements-offline.txt
+python preprocess.py --candidates ./candidates.jsonl
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
 ```
 
-The merge must concatenate raw CE logits and normalize only after the full file is joined at rank time. Do not normalize each part independently.
+---
+
+### Parallel cross-encoder refresh (three GPU sessions)
+
+Use when you want to split CE scoring across multiple GPU machines and merge afterward.
+
+Step 1 — split the retrieval pool:
+
+```bash
+pip install -r requirements-offline.txt
+python split_retrieval.py --parts 3
+```
+
+Step 2 — run CE scoring on each part in separate GPU sessions (one per part):
+
+```bash
+# Session 1
+python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder --retrieval-part artifacts/retrieval_scores_part1.parquet --ce-out artifacts/cross_encoder_scores_part1.parquet
+
+# Session 2
+python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder --retrieval-part artifacts/retrieval_scores_part2.parquet --ce-out artifacts/cross_encoder_scores_part2.parquet
+
+# Session 3
+python preprocess.py --candidates ./candidates.jsonl --only-cross-encoder --retrieval-part artifacts/retrieval_scores_part3.parquet --ce-out artifacts/cross_encoder_scores_part3.parquet
+```
+
+Step 3 — merge and rank:
+
+```bash
+python merge_ce.py artifacts/cross_encoder_scores_part1.parquet artifacts/cross_encoder_scores_part2.parquet artifacts/cross_encoder_scores_part3.parquet --output artifacts/cross_encoder_scores.parquet
+python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
+python validate_submission.py team_BuriBuri.csv
+```
+
+> **Important**: Do not normalize CE scores per partition. `merge_ce.py` concatenates raw CE logits and `src/reranker.py` normalizes the merged file globally at rank time.
 
 ## Reproducibility Boundaries
 
