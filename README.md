@@ -245,7 +245,117 @@ It downranks candidates with:
 
 ## Architecture Summary
 
-The system has two stages.
+```
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                        EVIDENCE RANK — TEAM BURIBURI                            ║
+║                    Intelligent Candidate Discovery & Ranking                     ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+  INPUT
+  ─────
+  candidates.jsonl  (100,000 candidates)
+  job_description.txt + metadata/JD_contract.yaml
+         │
+         │
+╔════════▼═══════════════════════════════════════════════════════════════════════╗
+║  STAGE A — OFFLINE PREPROCESSING   (preprocess.py)         runs once, ~hours  ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║  PHASE 0 · JD Intelligence                                                     ║
+║  ┌──────────────────────────────────────────────────────────────────────────┐  ║
+║  │  Parse JD contract → must-haves, disqualifiers, location policy,        │  ║
+║  │  exact recall terms, CE query profile (synthetic perfect candidate)      │  ║
+║  └──────────────────────────────────────────────────────────────────────────┘  ║
+║                              │                                                  ║
+║  PHASE 1 · Corpus Encoding                                                      ║
+║  ┌──────────────────────────────────────────────────────────────────────────┐  ║
+║  │  BGE-M3 dense embeddings  →  FAISS IndexFlatIP          (390 MB)        │  ║
+║  │  BGE-M3 learned sparse    →  CSR sparse matrix           (61 MB)        │  ║
+║  │  BM25                     →  BM25 index                 (189 MB)        │  ║
+║  │  Honeypot / ghost / timeline contradiction checks                        │  ║
+║  └──────────────────────────────────────────────────────────────────────────┘  ║
+║                              │                                                  ║
+║  PHASE 2 · Multi-Signal Retrieval                                               ║
+║  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────────────────────┐  ║
+║  │  Dense ANN      │  │  Sparse neural  │  │  BM25 lexical + exact/regex    │  ║
+║  │  (semantic)     │  │  (lexical-ish)  │  │  rescue lane (all 100K scanned)│  ║
+║  └────────┬────────┘  └────────┬────────┘  └──────────────┬─────────────────┘  ║
+║           └───────────────────►│◄─────────────────────────┘                    ║
+║                          RRF FUSION                                             ║
+║                              │                                                  ║
+║                    12,567-candidate pool                                        ║
+║                              │                                                  ║
+║  PHASE 3 · Feature Extraction                                                   ║
+║  ┌──────────────────────────────────────────────────────────────────────────┐  ║
+║  │  JD-specific signals per candidate:                                      │  ║
+║  │  retrieval_search · vector_db_hybrid · ltr_reranking · eval_framework   │  ║
+║  │  python_coding · sys_experience · career_ir_density · product_builder   │  ║
+║  │  evidence snippets · must-have gaps · trust/flag scores                  │  ║
+║  └──────────────────────────────────────────────────────────────────────────┘  ║
+║                              │                                                  ║
+║  PHASE 3b · Cross-Encoder Scoring  (BGE-Reranker-v2-M3, local, no network)     ║
+║  ┌──────────────────────────────────────────────────────────────────────────┐  ║
+║  │  Each candidate profile  ←→  synthetic perfect-candidate resume         │  ║
+║  │  Output: semantic similarity score for all 12,567 candidates             │  ║
+║  └──────────────────────────────────────────────────────────────────────────┘  ║
+║                              │                                                  ║
+║              artifacts/*.parquet  (< 2 MB total for rank.py)                   ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+                               │
+                               │  (precomputed artifacts loaded at startup)
+                               │
+╔══════════════════════════════▼═════════════════════════════════════════════════╗
+║  STAGE B — RUNTIME RANKING   (rank.py)                      ~7 seconds, CPU   ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║  [1/5]  Load 12,567 candidates from artifacts                                  ║
+║                                                                                ║
+║  [2/5]  RRF cutoff  →  top 10,000 by retrieval score                           ║
+║                                                                                ║
+║  [3/5]  Core scoring  (top 1,000 pool)                                         ║
+║  ┌──────────────────────────────────────────────────────────────────────────┐  ║
+║  │                                                                          │  ║
+║  │   Handcrafted JD score  ──────────────────────────────  68%             │  ║
+║  │   ┌──────────────────────────────────────────────────┐                  │  ║
+║  │   │  must-have evidence      55%  of core score      │                  │  ║
+║  │   │    retrieval / search     22%                     │                  │  ║
+║  │   │    vector DB / hybrid     16%                     │                  │  ║
+║  │   │    ranking systems        20%                     │                  │  ║
+║  │   │    eval framework         17%                     │                  │  ║
+║  │   │    python engineering      5%                     │                  │  ║
+║  │   │  career quality          15%  of core score       │                  │  ║
+║  │   │  product-builder score   25%  of core score       │                  │  ║
+║  │   │  nice-to-have             5%  of core score       │                  │  ║
+║  │   └──────────────────────────────────────────────────┘                  │  ║
+║  │                                                                          │  ║
+║  │   Precomputed CE score  ──────────────────────────────  32%             │  ║
+║  │                                                                          │  ║
+║  └──────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                                ║
+║  [4/5]  Behavioral modifiers  +  eval-aware calibration                        ║
+║  ┌──────────────────────────────────────────────────────────────────────────┐  ║
+║  │  BONUSES                         PENALTIES                               │  ║
+║  │  + same-project full-system      × notice period > 90d                  │  ║
+║  │  + recruiter workflow match      × outside India / no relocation         │  ║
+║  │  + passive + responsive + fit    × low response rate (< 40%)            │  ║
+║  │  + split-career core coverage    × partial system + logistics risk       │  ║
+║  │                                  × no retrieval/eval evidence            │  ║
+║  │                                  × keyword stuffer (CE vs core gap)      │  ║
+║  │  HARD DISQUALIFIERS (score → 0)                                          │  ║
+║  │  impossible timeline · ghost profile · wrong domain · langchain-only     │  ║
+║  └──────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                                ║
+║  [5/5]  Deterministic ranks assigned  →  factual reasoning generated           ║
+║         (evidence snippets only — no LLM, no hallucination)                   ║
+║                                                                                ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+                               │
+  OUTPUT
+  ──────
+  team_BuriBuri.csv            →  100 ranked candidates
+  artifacts/ranking_debug.csv  →  full scoring trace
+  docs/ranking_statistics.md   →  score distributions
+```
 
 ### Stage A: Offline Preprocessing
 
@@ -255,18 +365,7 @@ Entry point:
 python preprocess.py --candidates ./candidates.jsonl
 ```
 
-Purpose:
-
-- build JD query artifacts from `job_description.txt` and `metadata/JD_contract.yaml`
-- encode candidates with `BAAI/bge-m3`
-- build dense FAISS, learned-sparse CSR, and BM25 indexes
-- run honeypot, ghost, contradiction, and trust checks directly on JSON fields
-- create high-recall retrieval scores using RRF plus a full-corpus exact recall rescue lane
-- extract JD-specific features and evidence snippets
-- run `BAAI/bge-reranker-v2-m3` cross-encoder offline
-- save all reusable artifacts under `artifacts/`
-
-This stage can take much longer and can use GPU. It is not the final evaluated ranking path.
+This stage can use GPU and runs once. It is not the final evaluated ranking path. Saves all reusable artifacts under `artifacts/`.
 
 ### Stage B: Runtime Ranking
 
@@ -276,20 +375,7 @@ Entry point:
 python rank.py --candidates ./candidates.jsonl --out ./team_BuriBuri.csv
 ```
 
-Purpose:
-
-- load precomputed features and retrieval scores
-- filter to candidate IDs in the input file
-- slice the retrieval pool using `weights.yaml`
-- compute core score with `src/scorer.py`
-- blend precomputed cross-encoder score with handcrafted score
-- apply a lightweight full-profile runtime calibration pass for the final slice
-- apply behavioral modifiers and trust penalties with `src/behavioral.py`
-- assign deterministic ranks
-- generate factual reasoning with `src/explainer.py`
-- write `team_BuriBuri.csv` and artifact CSVs to `artifacts/`
-
-This stage is CPU-only, uses no network calls, and does not load torch, FAISS, FlagEmbedding, or sentence-transformer models.
+CPU-only, no network calls, no torch/FAISS/FlagEmbedding at runtime.
 
 For the deeper system walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
