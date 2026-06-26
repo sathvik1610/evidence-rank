@@ -512,6 +512,8 @@ def reachability_multiplier(cand: dict, reference_date: date) -> float:
 def notice_modifier(days) -> float:
     if days is None:
         return 1.00
+    if days == 0:
+        return W["behavioral.notice_zero_mult"]
     if days <= W["behavioral.notice_ideal_days"]:
         return W["behavioral.notice_ideal_mult"]
     elif days <= W["behavioral.notice_mild_days"]:
@@ -636,7 +638,8 @@ def soft_penalties(cand: dict) -> float:
         max_overclaim = float(cand.get("max_target_skill_overclaim_months", 0.0))
         if max_overclaim >= 24.0:
             multiplier *= 0.85
-        elif max_overclaim >= 6.0:
+        elif max_overclaim >= 6.0 and target_duration_contradictions < 2:
+            # Only apply mild overclaim penalty when not already penalized by contradiction check above
             multiplier *= 0.90
     except (ValueError, TypeError):
         pass
@@ -690,8 +693,14 @@ def soft_penalties(cand: dict) -> float:
     elif adjacent_ratio >= 0.50:
         multiplier *= W["soft_penalties.adjacent_career_half_mult"]
     core_ce_gap = core_over_ce_disagreement(cand)
+    very_high_core = _num(cand, "core_score") >= 95.0
+    no_dup_desc = int(cand.get("eval_metric_duplicate_descriptions", 0) or 0) == 0
     if core_ce_gap >= W["soft_penalties.ce_delta_high_threshold"]:
-        multiplier *= W["soft_penalties.ce_delta_high_mult"]
+        if very_high_core and no_dup_desc:
+            # core >= 95 with clean descriptions: CE likely under-read the profile, not a regex overread
+            multiplier *= W["soft_penalties.ce_delta_moderate_mult"]
+        else:
+            multiplier *= W["soft_penalties.ce_delta_high_mult"]
     elif core_ce_gap >= W["soft_penalties.ce_delta_moderate_threshold"]:
         multiplier *= W["soft_penalties.ce_delta_moderate_mult"]
     if ce_ceiling_sanity_risk(cand) and _num(cand, "core_score") < W["behavioral.reachable_elite_phase4_max"]:

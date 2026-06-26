@@ -115,7 +115,7 @@ Expected console output:
   [4/5] Behavioral modifiers + calibration...
   [5/5] Ranks assigned -> generating reasoning for top 100 candidates
 
-Done in ~7s  ->  100 candidates ranked
+Done in 8.33s  ->  100 candidates ranked
 
 Output files:
   Submission       ./team_BuriBuri.csv
@@ -153,7 +153,7 @@ For the Python must-have, the runtime gate prefers explicit `Python`/Python-libr
 
 Career-density scoring follows the JD wording rather than only one canonical phrase list. Singular and compound evidence such as `embedding-based search`, `embedding ranker`, and `ranker variants` is treated as retrieval/ranking evidence because the JD explicitly asks for embeddings, retrieval, ranking, and a working ranker. Generic `A/B testing` remains guarded: it contributes to evaluation density only when the same role already shows search, retrieval, ranking, recommendation, or matching work.
 
-**Keyword Stuffer Mitigation**: To naturally filter out candidates who stuff keywords but lack genuine semantic alignment (trap profiles), the ranking engine calculates a "Cross-Encoder Disagreement Penalty" (`ce_core_delta`). If a candidate's handcrafted regex core score vastly exceeds their AI semantic cross-encoder score (by a threshold of `38.0` points), their score is aggressively penalized via a harsh multiplier. This drops false-positives completely out of the Top 10, ensuring high precision in the final submission.
+**Keyword Stuffer Mitigation**: To naturally filter out candidates who stuff keywords but lack genuine semantic alignment (trap profiles), the ranking engine calculates a "Cross-Encoder Disagreement Penalty" (`ce_core_delta`). If a candidate's handcrafted rulebook score greatly exceeds their semantic cross-encoder score, the system applies a trust penalty. Very-high-core candidates with clean production evidence are softened instead of automatically buried, so the penalty catches shallow keyword stuffing without discarding strong resumes that the reranker under-reads.
 
 For the dataset summary, corpus audit counts, and the exact assumptions used for duplicate descriptions, behavioral twins, and skill-duration metadata, see [docs/DATASET_ANALYSIS.md](docs/DATASET_ANALYSIS.md).
 
@@ -166,18 +166,18 @@ These are local verification metrics for the current generated `team_BuriBuri.cs
 | ----------------------------| -----------------------------------------------------------------------------------------------:|
 | Output rows                | 100                                                                                            |
 | Required columns           | `candidate_id,rank,score,reasoning`                                                            |
-| Runtime for `rank.py`      | about 7 seconds locally                                                                        |
+| Runtime for `rank.py`      | 8.33 seconds locally                                                                           |
 | Ranking constraint         | CPU only, no network, no GPU                                                                   |
 | Submission validator       | Pass                                                                                           |
 | Reasoning factuality audit | Deterministic evidence-grounded reasoning; final rows manually spot-checked after regeneration |
-| Full test suite            | See local `pytest` run; `rank.py` and edited modules compile                                   |
+| Full test suite            | `116 passed`; `rank.py` and edited modules compile                                             |
 | Top score                  | 96.178                                                                                         |
-| Rank-100 score             | 46.455                                                                                         |
-| Mean score                 | 59.149                                                                                         |
-| Median score               | 54.299                                                                                         |
+| Rank-100 score             | 46.681                                                                                         |
+| Mean score                 | 59.798                                                                                         |
+| Median score               | 55.466                                                                                         |
 | Rank 1                     | `CAND_0046525`                                                                                 |
-| Rank 10                    | `CAND_0088025`                                                                                 |
-| Rank 50                    | `CAND_0026532`                                                                                 |
+| Rank 10                    | `CAND_0011687`                                                                                 |
+| Rank 50                    | `CAND_0030953`                                                                                 |
 | Rank 100                   | `CAND_0078492`                                                                                 |
 
 ## Preprocessing Reliability
@@ -305,7 +305,7 @@ It downranks candidates with:
                                │  (precomputed artifacts loaded at startup)
                                │
 ╔══════════════════════════════▼═════════════════════════════════════════════════╗
-║  STAGE B — RUNTIME RANKING   (rank.py)                      ~7 seconds, CPU   ║
+║  STAGE B — RUNTIME RANKING   (rank.py)                      ~8 seconds, CPU   ║
 ╠════════════════════════════════════════════════════════════════════════════════╣
 ║                                                                                ║
 ║  [1/5]  Load 12,567 candidates from artifacts                                  ║

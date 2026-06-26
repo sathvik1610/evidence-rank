@@ -183,6 +183,7 @@ behavioral:
   notice_ideal_days:    30     # <= this → no penalty
   notice_mild_days:     60     # <= this → mild penalty
   notice_moderate_days: 90    # <= this → moderate penalty
+  notice_zero_mult:     1.03   # == 0 days → immediate-joiner bonus (founding team speed)
   notice_ideal_mult:    1.00
   notice_mild_mult:     0.95
   notice_moderate_mult: 0.87
@@ -192,7 +193,7 @@ behavioral:
   location_pune_noida_mult:        1.04
   location_welcome_cities_mult:    1.00  # hyderabad, mumbai (with relocation)
   location_welcome_no_reloc:       0.97
-  location_india_willing_mult:     0.95
+  location_india_willing_mult:     0.97
   location_india_no_reloc_mult:    0.90
   location_abroad_willing_mult:    0.82
   location_abroad_no_reloc_mult:   0.58

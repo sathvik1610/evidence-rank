@@ -1,5 +1,5 @@
 """
-src/explainer.py — Phase 6: Reason Generation
+src/explainer.py - Phase 6: Reason Generation
 
 Generates safe, hallucination-free reasoning strings for the final submission.
 Follows the Phase 6 architecture: Evidence-driven lead selection based on the
@@ -154,6 +154,14 @@ SUPPORT_TEMPLATES = [
     "Adds {secondary_name} support: {snippet}"
 ]
 
+EXACT_WORKFLOW_TEMPLATES = [
+    "JD coverage spans matching workflow, retrieval infrastructure, ranking decisions, and evaluation",
+    "Full-system signal is present across candidate discovery, hybrid retrieval, ranker iteration, and measurement",
+    "The profile connects the role's intelligence-layer needs: matching, retrieval, re-ranking, and quality evaluation",
+    "Evidence covers the four practical JD pillars: discovery workflow, search infrastructure, ranker design, and measurement",
+    "The extracted career evidence supports recruiter-side matching, retrieval infrastructure, re-ranking, and evaluation",
+]
+
 FULL_PLAN_SUPPORT_TEMPLATES = [
     "Recent work maps to the JD's first-90-days arc: retrieval audit, v2 ranking, and evaluation infrastructure",
     "Current/recent role evidence spans retrieval, ranking, evaluation, and product shipping",
@@ -184,12 +192,17 @@ def _variant(cand: dict, count: int) -> int:
     if count <= 0:
         return 0
     seed = f"{cand.get('candidate_id', '')}:{cand.get('rank', '')}"
-    return sum(ord(ch) for ch in seed) % count
+    h = 5381
+    for ch in seed:
+        h = (h * 33 + ord(ch)) & 0xFFFFFFFF
+    return h % count
 
 
 def _trim_snippet(snippet: str, limit: int = 80) -> str:
     clean = " ".join(str(snippet or "").strip().split())
     clean = clean.lstrip(" ,.;:-")
+    clean = re.sub(r"\bI\s+owned\b", "owned", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\bthat has held up\b", "that held up", clean, flags=re.IGNORECASE)
     exact_rewrites = {
         "Spent substantial t": "worked on ranking-quality evaluation and iteration",
         "yword-search-based product to embedding-based retrieval":
@@ -227,7 +240,7 @@ def _trim_snippet(snippet: str, limit: int = 80) -> str:
             return good
     if clean.lower().startswith(("ss hnsw", "hnsw with an llm-based re-ranker")):
         return "BM25 + dense retrieval with FAISS HNSW and an LLM-based reranker"
-    clean = re.sub(r"^scratch\s+[—-]\s+", "built an evaluation harness using ", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"^scratch\s+[\u2014-]\s+", "built an evaluation harness using ", clean, flags=re.IGNORECASE)
     clean = re.sub(r"\b(?:NLP|AI|ML|Search|Machine Learning|Applied ML)\s+Engineer\s+(?=Owned\b)", "", clean)
     clean = re.sub(r"\b(?:NLP|AI|ML|Search|Machine Learning|Applied ML)\s+Engineer\s+(?=Trained\b)", "", clean)
     clean = re.sub(r"\b(?:Learning\s+)?Engineer\s+(?=Shipped|Implemented\b)", "", clean)
@@ -282,7 +295,7 @@ def _trim_snippet(snippet: str, limit: int = 80) -> str:
         and dropped_lower_prefixes < 3
     ):
         clean = clean.split(" ", 1)[1] if " " in clean else clean
-        clean = clean.lstrip(" ,.;:-—")
+        clean = clean.lstrip(" ,.;:-\u2014")
         first_word = clean.split(" ", 1)[0] if clean else ""
         dropped_lower_prefixes += 1
     while clean and " " in clean:
@@ -387,6 +400,8 @@ def _natural_caveat(concern_text: str) -> str:
         return clean
     if "cross-encoder and handcrafted score strongly disagree" in lower:
         return f"Manual-review caveat: {_lower_first(clean)}"
+    if "semantic reranker score" in lower:
+        return f"Manual-review caveat: {_lower_first(clean)}"
     if "handcrafted score is much higher than semantic ce score" in lower:
         return f"Manual-review caveat: {_lower_first(clean)}"
     if "semantic ce score" in lower or "ce score" in lower:
@@ -433,15 +448,21 @@ def _rank_band_label(rank: int) -> str:
 def _lead_opener(cand: dict, primary_short: str, primary_snippet: str, primary_score: float) -> str:
     """Vary top-band prose while staying grounded in extracted fields."""
     identity = _profile_prefix(cand) or "Candidate"
-    variant = _variant(cand, 5)
-    if variant == 0 and primary_snippet:
-        return f"{identity} is a strong match for the JD's intelligence-layer work, with {primary_short} evidence: {primary_snippet}"
-    if variant == 1 and primary_snippet:
-        return f"{identity} matches the search/ranking mandate through {primary_short} work: {primary_snippet}"
-    if variant == 2 and primary_score >= 3.0:
-        return f"{identity} has production-grade {primary_short} experience aligned with Redrob's retrieval/ranking role"
-    if variant == 3 and primary_snippet:
-        return f"{identity} brings direct {primary_short} evidence for the JD: {primary_snippet}"
+    variant = _variant(cand, 6)
+    if primary_snippet:
+        concrete_leads = [
+            f"{identity} shows direct {primary_short} evidence for the JD: {primary_snippet}",
+            f"{identity} is strongest on direct {primary_short} evidence, with profile text saying: {primary_snippet}",
+            f"{identity} gives concrete direct {primary_short} evidence for the Redrob role: {primary_snippet}",
+            f"{identity} maps to the search/ranking mandate through direct {primary_short} evidence: {primary_snippet}",
+            f"{identity} has hands-on direct {primary_short} evidence rather than only keyword overlap: {primary_snippet}",
+            f"{identity} is a high-signal match because the profile shows direct {primary_short} evidence: {primary_snippet}",
+        ]
+        return concrete_leads[variant]
+    if primary_score >= 3.0:
+        return f"{identity} has production-backed {primary_short} evidence aligned with Redrob's retrieval/ranking role"
+    if primary_snippet:
+        return f"{identity} has direct {primary_short} evidence relevant to the JD: {primary_snippet}"
     return f"{identity} has direct {primary_short} evidence relevant to the JD"
 
 
@@ -480,6 +501,23 @@ def _finish_sentence(text: str) -> str:
     return f"{clean}."
 
 
+def _ascii_safe_reasoning(text: str) -> str:
+    clean = str(text or "")
+    replacements = {
+        "\u2192": "->",
+        "\u2014": "-",
+        "\u2013": "-",
+        "\u2011": "-",
+        "\u2264": "<=",
+        "\u2265": ">=",
+        "\u00d7": "x",
+        "\u00a0": " ",
+    }
+    for old, new in replacements.items():
+        clean = clean.replace(old, new)
+    return " ".join(clean.split())
+
+
 def _snippet_for(snippets: dict, key: str) -> str:
     return _trim_snippet(snippets.get(key, ""))
 
@@ -512,6 +550,19 @@ def _explanation_quality(snippet: str) -> int:
     return score
 
 
+def _snippets_too_similar(a: str, b: str) -> bool:
+    left = re.findall(r"[a-z0-9]+", str(a or "").lower())
+    right = re.findall(r"[a-z0-9]+", str(b or "").lower())
+    if not left or not right:
+        return False
+    left_set = set(left)
+    right_set = set(right)
+    overlap = len(left_set & right_set) / max(1, min(len(left_set), len(right_set)))
+    common_stack = ("bm25", "dense", "retrieval", "faiss", "reranker")
+    both_common_stack = sum(1 for term in common_stack if term in left_set and term in right_set) >= 3
+    return overlap >= 0.55 or both_common_stack
+
+
 def _behavioral_summary(cand: dict) -> str:
     parts = []
     notice_days = cand.get("beh_notice_period_days")
@@ -520,7 +571,7 @@ def _behavioral_summary(cand: dict) -> str:
             notice_int = int(float(notice_days))
             if notice_int <= 30:
                 parts.append(f"{notice_int}-day notice")
-            elif notice_int > 90:
+            elif notice_int >= 90:
                 parts.append(f"{notice_int}-day notice")
     except (TypeError, ValueError):
         pass
@@ -549,6 +600,34 @@ def _behavioral_phrase(cand: dict) -> str:
     return f"Hiring fit is helped by {summary}"
 
 
+def _compact_reason_clause(text: str) -> str:
+    clean = str(text or "").strip().rstrip(".")
+    if not clean:
+        return ""
+    if clean.startswith("The main caveat is logistics:"):
+        return clean
+    replacements = (
+        ("The main caveat is availability: ", "Caveat: "),
+        ("The main caveat is ", "Caveat: "),
+        ("Manual-review caveat: ", "Review caveat: "),
+        ("Career history has ", "Caveat: "),
+        ("Note: ", "Caveat: "),
+    )
+    for old, new in replacements:
+        if clean.startswith(old):
+            clean = new + clean[len(old):]
+            break
+    clean = clean.replace(
+        " (synthetic dataset artifact; description evidence was deduplicated before scoring)",
+        " (deduplicated before scoring)",
+    )
+    clean = clean.replace(
+        " (synthetic dataset artifact; deduplicated for semantic scoring)",
+        " (deduplicated for semantic scoring)",
+    )
+    return clean
+
+
 def get_90day_milestone(domain_key: str) -> str:
     if domain_key in ("retrieval_search", "sys_experience_score"):
         return "the Weeks 1-3 audit (BM25/Retrieval)"
@@ -568,13 +647,16 @@ def get_largest_concern(cand: dict) -> str:
     if has_notice_risk(cand):
         return "120-day notice is a major hiring-friction risk; keep only as a lower-band backup if technical fit is exceptional."
     if has_location_risk(cand):
-        return "Location/no-relocation combination is a major hiring-friction risk for this role."
+        base = "Location/no-relocation combination is a major hiring-friction risk for this role"
+        if ce_ceiling_sanity_risk(cand):
+            return f"{base}; CE score is also saturated at ceiling - treat as a sanity-check case."
+        return f"{base}."
     if len(missing) >= 2:
         return f"Missing must-have evidence for {', '.join(missing)}; treat as a capped/manual-review profile."
     if ce_rescue_with_core_gap(cand):
         return "Cross-encoder and handcrafted score strongly disagree while must-have evidence is incomplete."
     if core_over_ce_disagreement(cand) > 38.0:
-        return "Handcrafted score is much higher than semantic CE score; regex evidence may be over-reading adjacent work."
+        return "Semantic reranker score is lower than rulebook evidence, so the extracted retrieval/evaluation evidence should be verified in review."
     if ce_core_delta(cand) > 30.0:
         return "Cross-encoder and handcrafted score strongly disagree; raw evidence needs manual review."
     if ce_ceiling_sanity_risk(cand):
@@ -655,6 +737,9 @@ def get_largest_concern(cand: dict) -> str:
         return "Recent company switches include title progression, so long-term fit should be checked."
     if cand.get("title_velocity_flag", False):
         return "Short average tenure across recent roles is a retention caveat for this founding-team role."
+    dup_count = int(cand.get("eval_metric_duplicate_descriptions", 0) or 0)
+    if dup_count >= 1:
+        return f"Career history has {dup_count + 1} career roles with copy-pasted descriptions (synthetic dataset artifact; description evidence was deduplicated before scoring)."
     return ""
 
 
@@ -751,6 +836,7 @@ def generate_reasoning(cand: dict) -> str:
         for phrase in (
             "cross-encoder",
             "semantic ce score",
+            "semantic reranker",
             "regex evidence",
             "location/no-relocation",
             "120-day notice",
@@ -808,8 +894,19 @@ def generate_reasoning(cand: dict) -> str:
         cand.get("runtime_same_project_full_system_bonus_applied", False)
         and cand.get("runtime_recruiter_workflow_bonus_applied", False)
     )
-    if rank <= 60 and exact_workflow:
-        support = "Profile evidence covers recruiter/candidate matching, hybrid retrieval, ranking decisions, and evaluation"
+    secondary_snippet = _snippet_for(snippets, secondary_key) if secondary_key else ""
+    if (
+        rank <= 15
+        and secondary_key
+        and cand.get(secondary_key, 0.0) >= 2.0
+        and secondary_snippet
+        and not _snippets_too_similar(primary_snippet, secondary_snippet)
+    ):
+        template = SUPPORT_TEMPLATES[_variant(cand, len(SUPPORT_TEMPLATES))]
+        secondary_label = DOMAIN_SHORT_NAMES.get(secondary_key, secondary_name)
+        support = template.format(secondary_name=secondary_label, snippet=secondary_snippet)
+    elif rank <= 60 and exact_workflow:
+        support = EXACT_WORKFLOW_TEMPLATES[_variant(cand, len(EXACT_WORKFLOW_TEMPLATES))]
     elif rank <= 60 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85 and clean_full_plan:
         support = FULL_PLAN_SUPPORT_TEMPLATES[_variant(cand, len(FULL_PLAN_SUPPORT_TEMPLATES))]
     elif rank <= 60 and cand.get("runtime_full_plan_signal", 0.0) >= 0.85:
@@ -819,13 +916,7 @@ def generate_reasoning(cand: dict) -> str:
         else:
             support = PARTIAL_PLAN_SUPPORT_TEMPLATES[_variant(cand, len(PARTIAL_PLAN_SUPPORT_TEMPLATES))]
     elif rank <= 15 and cand.get("career_ir_density", 0.0) >= 0.60:
-        secondary_snippet = _snippet_for(snippets, secondary_key) if secondary_key else ""
-        if secondary_key and cand.get(secondary_key, 0.0) >= 2.0 and secondary_snippet:
-            template = SUPPORT_TEMPLATES[_variant(cand, len(SUPPORT_TEMPLATES))]
-            secondary_label = DOMAIN_SHORT_NAMES.get(secondary_key, secondary_name)
-            support = template.format(secondary_name=secondary_label, snippet=secondary_snippet)
-        else:
-            support = "Career-history features show sustained search/ranking/evaluation density"
+        support = "Career-history features show sustained search/ranking/evaluation density"
     elif rank <= 60 and secondary_key and cand.get(secondary_key, 0.0) >= 2.0:
         secondary_snippet = _snippet_for(snippets, secondary_key)
         if secondary_snippet:
@@ -857,7 +948,9 @@ def generate_reasoning(cand: dict) -> str:
         or "Skill-duration" in concern_text
         or "Cross-encoder" in concern_text
         or "semantic CE score" in concern_text
+        or "Semantic reranker" in concern_text
         or "regex evidence" in concern_text
+        or "duplicate" in concern_text
     ):
         caveat = _natural_caveat(concern_text)
     elif rank > 70 and not concern_text:
@@ -875,7 +968,25 @@ def generate_reasoning(cand: dict) -> str:
 
     behavioral = _behavioral_phrase(cand)
 
-    second_parts = [p.rstrip(".") for p in [support, behavioral, caveat, title_caveat] if p]
+    dup_count = int(cand.get("eval_metric_duplicate_descriptions", 0) or 0)
+    dup_note = ""
+    if dup_count >= 1 and "duplicate" not in caveat:
+        dup_note = f"Note: {dup_count + 1} career roles share an identical description (synthetic dataset artifact; deduplicated for semantic scoring)"
+
+    second_parts = []
+    if support:
+        second_parts.append(_compact_reason_clause(support))
+    if caveat:
+        second_parts.append(_compact_reason_clause(caveat))
+    elif title_caveat:
+        second_parts.append(_compact_reason_clause(title_caveat))
+    elif dup_note:
+        second_parts.append(_compact_reason_clause(dup_note))
+    elif behavioral:
+        second_parts.append(_compact_reason_clause(behavioral))
+    if support and not caveat and not title_caveat and not dup_note and behavioral:
+        second_parts.append(_compact_reason_clause(behavioral))
+    second_parts = [p for p in second_parts if p][:2]
     if second_parts:
-        return f"{lead} {'; '.join(second_parts)}."
-    return lead
+        return _ascii_safe_reasoning(f"{lead} {'; '.join(second_parts)}.")
+    return _ascii_safe_reasoning(lead)

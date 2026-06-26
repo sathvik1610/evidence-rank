@@ -64,7 +64,7 @@ python -m pytest tests -q
 
 - `team_BuriBuri.csv` with exactly 100 rows.
 - Required columns: `candidate_id,rank,score,reasoning`.
-- Runtime around 7 seconds locally with current artifacts.
+- Runtime around 8 seconds locally with current artifacts.
 - CPU-only ranking, no network calls, no GPU, no hosted LLM.
 
 Expected console output:
@@ -77,7 +77,7 @@ Expected console output:
   [4/5] Behavioral modifiers + calibration...
   [5/5] Ranks assigned -> generating reasoning for top 100 candidates
 
-Done in ~7s  ->  100 candidates ranked
+Done in 8.33s  ->  100 candidates ranked
 
 Output files:
   Submission       ./team_BuriBuri.csv
@@ -146,6 +146,6 @@ Latest local checks:
 validate_submission.py team_BuriBuri.csv: valid
 reasoning: deterministic evidence-grounded rows spot-checked after regeneration
 py_compile: rank.py, src/behavioral.py, src/explainer.py pass
-rank.py runtime: about 7 seconds locally
-score range: 96.178 to 46.455
+rank.py runtime: 8.33 seconds locally
+score range: 96.178 to 46.681
 ```
